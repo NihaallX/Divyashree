@@ -1,0 +1,105 @@
+services:
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.local
+    container_name: relayx-frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+      - voice-gateway
+    restart: unless-stopped
+    networks:
+      - relayx-network
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile.local
+    container_name: relayx-backend
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - GROQ_API_KEY=${GROQ_API_KEY}
+      - GROQ_MODEL=llama-3.3-70b-versatile
+      - USE_CLOUD_STT=${USE_CLOUD_STT}
+      - REDIS_URL=redis://redis:6379
+      - TWILIO_ACCOUNT_SID=${TWILIO_ACCOUNT_SID}
+      - TWILIO_AUTH_TOKEN=${TWILIO_AUTH_TOKEN}
+      - TWILIO_PHONE_NUMBER=${TWILIO_PHONE_NUMBER}
+      - VOICE_GATEWAY_URL=${VOICE_GATEWAY_URL}
+      - LANDING_PAGE_AGENT_ID=${LANDING_PAGE_AGENT_ID}
+      - CAL_API_KEY=${CAL_API_KEY}
+    volumes:
+      - ./backend:/app
+      - ./shared:/app/shared
+      - ./db:/app/db
+      - ./logs:/app/logs
+      - /var/run/docker.sock:/var/run/docker.sock
+    restart: unless-stopped
+    networks:
+      - relayx-network
+
+  voice-gateway:
+    build:
+      context: .
+      dockerfile: voice_gateway/Dockerfile
+    container_name: relayx-voice-gateway
+    ports:
+      - "8001:8001"
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - TWILIO_ACCOUNT_SID=${TWILIO_ACCOUNT_SID}
+      - TWILIO_AUTH_TOKEN=${TWILIO_AUTH_TOKEN}
+      - TWILIO_PHONE_NUMBER=${TWILIO_PHONE_NUMBER}
+      - BACKEND_URL=http://backend:8000
+      - GROQ_API_KEY=${GROQ_API_KEY}
+      - USE_CLOUD_STT=${USE_CLOUD_STT}
+      - REDIS_URL=redis://redis:6379
+      - VOICE_GATEWAY_URL=${VOICE_GATEWAY_URL}
+      - SARVAM_API_KEY=${SARVAM_API_KEY}
+    volumes:
+      - ./voice_gateway:/app
+      - ./shared:/app/shared
+      - ./logs:/app/logs
+    depends_on:
+      - backend
+    restart: unless-stopped
+    networks:
+      - relayx-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: relayx-redis
+    ports:
+      - "6379:6379"
+    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis-data:/data
+    restart: unless-stopped
+    networks:
+      - relayx-network
+
+  ngrok:
+    image: ngrok/ngrok:latest
+    container_name: relayx-ngrok
+    command: http voice-gateway:8001 --authtoken ${NGROK_AUTHTOKEN}
+    environment:
+      - NGROK_AUTHTOKEN=${NGROK_AUTHTOKEN}
+    depends_on:
+      - voice-gateway
+    ports:
+      - "4040:4040"
+    restart: unless-stopped
+    networks:
+      - relayx-network
+
+volumes:
+  redis-data:
+
+
+networks:
+  relayx-network:
+    driver: bridge

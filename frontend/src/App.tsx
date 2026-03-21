@@ -1,0 +1,145 @@
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { AuthProvider } from './contexts/AuthContext';
+import ProtectedRoute from './components/ProtectedRoute';
+import ProtectedAdminRoute from './components/ProtectedAdminRoute';
+import LandingPage from './pages/LandingPage';
+import Login from './pages/Login';
+import Signup from './pages/Signup';
+import Pricing from './pages/Pricing';
+import Dashboard from './pages/Dashboard';
+import Analytics from './pages/Analytics';
+import Calls from './pages/Calls';
+import CallDetails from './pages/CallDetails';
+import CampaignDetail from './pages/CampaignDetail';
+import Campaigns from './pages/Campaigns';
+import Contacts from './pages/Contacts';
+import AgentSettings from './pages/AgentSettings';
+import KnowledgeBase from './pages/KnowledgeBase';
+import TestBot from './pages/TestBot';
+import CalIntegration from './pages/CalIntegration';
+import Billing from './pages/Billing';
+import AdminLogin from './pages/AdminLogin';
+import AdminDashboard from './pages/AdminDashboard';
+
+function App() {
+  return (
+    <AuthProvider>
+      <BrowserRouter>
+        <Routes>
+          <Route path="/" element={<LandingPage />} />
+          <Route path="/login" element={<Login />} />
+          <Route path="/signup" element={<Signup />} />
+          <Route path="/pricing" element={<Pricing />} />
+          <Route path="/admin/login" element={<AdminLogin />} />
+          <Route 
+            path="/admin" 
+            element={
+              <ProtectedAdminRoute>
+                <AdminDashboard />
+              </ProtectedAdminRoute>
+            } 
+          />
+          <Route
+            path="/dashboard"
+            element={
+              <ProtectedRoute>
+                <Dashboard />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/dashboard/analytics"
+            element={
+              <ProtectedRoute>
+                <Analytics />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/dashboard/calls"
+            element={
+              <ProtectedRoute>
+                <Calls />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/dashboard/calls/:callId"
+            element={
+              <ProtectedRoute>
+                <CallDetails />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/campaigns/:campaignId"
+            element={
+              <ProtectedRoute>
+                <CampaignDetail />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/dashboard/campaigns"
+            element={
+              <ProtectedRoute>
+                <Campaigns />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/dashboard/contacts"
+            element={
+              <ProtectedRoute>
+                <Contacts />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/dashboard/bot"
+            element={
+              <ProtectedRoute>
+                <AgentSettings />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/dashboard/knowledge"
+            element={
+              <ProtectedRoute>
+                <KnowledgeBase />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/dashboard/test"
+            element={
+              <ProtectedRoute>
+                <TestBot />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/dashboard/cal"
+            element={
+              <ProtectedRoute>
+                <CalIntegration />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/dashboard/billing"
+            element={
+              <ProtectedRoute>
+                <Billing />
+              </ProtectedRoute>
+            }
+          />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </BrowserRouter>
+    </AuthProvider>
+  );
+}
+
+export default App;

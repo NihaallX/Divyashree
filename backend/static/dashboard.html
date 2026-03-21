@@ -1,0 +1,1998 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RelayX — Voice Intelligence Platform</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --coal: #0a0e14;
+            --slate: #1a1f2e;
+            --graphite: #2a2f3e;
+            --electric: #00f0ff;
+            --amber: #ff9500;
+            --frost: #e8f4f8;
+            --signal-green: #00ff88;
+            --signal-red: #ff3366;
+            --mono: 'IBM Plex Mono', 'Courier New', monospace;
+            --sans: 'Outfit', -apple-system, system-ui, sans-serif;
+        }
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: var(--sans);
+            background: var(--coal);
+            color: var(--frost);
+            min-height: 100vh;
+            position: relative;
+            overflow-x: hidden;
+        }
+        
+        /* Layered background with noise and grid */
+        body::before {
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: 
+                linear-gradient(135deg, rgba(0, 240, 255, 0.03) 0%, rgba(255, 149, 0, 0.03) 100%),
+                repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.02) 0px, transparent 1px, transparent 40px),
+                repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.02) 0px, transparent 1px, transparent 40px);
+            pointer-events: none;
+            z-index: 0;
+        }
+        
+        body::after {
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 400 400' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='1.5' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.03'/%3E%3C/svg%3E");
+            pointer-events: none;
+            z-index: 0;
+        }
+        
+        .container {
+            max-width: 1600px;
+            margin: 0 auto;
+            padding: 40px 30px;
+            position: relative;
+            z-index: 1;
+        }
+        
+        /* Header with industrial precision */
+        .header {
+            background: linear-gradient(135deg, var(--slate) 0%, var(--graphite) 100%);
+            border: 1px solid rgba(0, 240, 255, 0.1);
+            padding: 32px 40px;
+            border-radius: 4px;
+            margin-bottom: 40px;
+            position: relative;
+            overflow: hidden;
+            animation: slideDown 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        
+        @keyframes slideDown {
+            from {
+                opacity: 0;
+                transform: translateY(-20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
+        .header::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 4px;
+            height: 100%;
+            background: linear-gradient(180deg, var(--electric) 0%, var(--amber) 100%);
+        }
+        
+        .header-content {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 20px;
+        }
+        
+        .header-left h1 {
+            font-size: 2.8rem;
+            font-weight: 700;
+            background: linear-gradient(135deg, var(--electric) 0%, var(--frost) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 8px;
+            letter-spacing: -0.02em;
+        }
+        
+        .header-left p {
+            font-family: var(--mono);
+            font-size: 0.85rem;
+            color: rgba(232, 244, 248, 0.6);
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+        }
+        
+        .header-right {
+            display: flex;
+            gap: 12px;
+        }
+        
+        .nav-btn {
+            background: rgba(0, 240, 255, 0.1);
+            border: 1px solid var(--electric);
+            color: var(--electric);
+            padding: 12px 24px;
+            border-radius: 4px;
+            font-family: var(--mono);
+            font-size: 0.85rem;
+            text-decoration: none;
+            transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+            cursor: pointer;
+            letter-spacing: 0.05em;
+        }
+        
+        .nav-btn:hover {
+            background: var(--electric);
+            color: var(--coal);
+            transform: translateY(-2px);
+            box-shadow: 0 8px 24px rgba(0, 240, 255, 0.3);
+        }
+        
+        .nav-btn.secondary {
+            border-color: var(--amber);
+            color: var(--amber);
+            background: rgba(255, 149, 0, 0.05);
+        }
+        
+        .nav-btn.secondary:hover {
+            background: var(--amber);
+            color: var(--coal);
+            box-shadow: 0 8px 24px rgba(255, 149, 0, 0.3);
+        }
+        
+        /* Modal Styles */
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(10, 14, 20, 0.95);
+            backdrop-filter: blur(10px);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+            animation: fadeIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        
+        .modal.active {
+            display: flex;
+        }
+        
+        .modal-content {
+            background: var(--graphite);
+            border: 1px solid rgba(0, 240, 255, 0.2);
+            max-width: 900px;
+            width: 90%;
+            max-height: 90vh;
+            overflow-y: auto;
+            animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+            position: relative;
+        }
+        
+        @keyframes slideUp {
+            from {
+                opacity: 0;
+                transform: translateY(30px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
+        .modal-header {
+            padding: 24px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: linear-gradient(135deg, rgba(0, 240, 255, 0.05), transparent);
+        }
+        
+        .modal-header h2 {
+            margin: 0;
+            font-family: var(--mono);
+            font-size: 18px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: var(--electric);
+        }
+        
+        .modal-close {
+            background: none;
+            border: none;
+            color: var(--frost);
+            font-size: 24px;
+            cursor: pointer;
+            padding: 0;
+            width: 32px;
+            height: 32px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        
+        .modal-close:hover {
+            color: var(--amber);
+            transform: rotate(90deg);
+        }
+        
+        .modal-body {
+            padding: 24px;
+        }
+        
+        .modal-footer {
+            padding: 24px;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+            display: flex;
+            gap: 12px;
+            justify-content: flex-end;
+        }
+        
+        .btn {
+            padding: 12px 24px;
+            border: 1px solid;
+            font-family: var(--mono);
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            cursor: pointer;
+            transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+            position: relative;
+            overflow: hidden;
+            border-radius: 4px;
+        }
+        
+        .btn-primary {
+            background: var(--electric);
+            border-color: var(--electric);
+            color: var(--coal);
+        }
+        
+        .btn-primary:hover {
+            box-shadow: 0 0 30px rgba(0, 240, 255, 0.4);
+            transform: translateY(-2px);
+        }
+        
+        .btn-secondary {
+            background: transparent;
+            border-color: rgba(255, 255, 255, 0.2);
+            color: var(--frost);
+        }
+        
+        .btn-secondary:hover {
+            border-color: var(--frost);
+            background: rgba(255, 255, 255, 0.05);
+        }
+        
+        .char-counter {
+            text-align: right;
+            font-size: 11px;
+            color: var(--slate);
+            margin-top: 8px;
+            font-family: var(--mono);
+        }
+        
+        /* Stats grid with staggered animation */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 24px;
+            margin-bottom: 40px;
+        }
+        
+        .stat-card {
+            background: var(--slate);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            padding: 28px;
+            border-radius: 4px;
+            position: relative;
+            overflow: hidden;
+            transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+            animation: fadeInUp 0.6s cubic-bezier(0.16, 1, 0.3, 1) backwards;
+        }
+        
+        .stat-card:nth-child(1) { animation-delay: 0.1s; }
+        .stat-card:nth-child(2) { animation-delay: 0.2s; }
+        .stat-card:nth-child(3) { animation-delay: 0.3s; }
+        .stat-card:nth-child(4) { animation-delay: 0.4s; }
+        
+        @keyframes fadeInUp {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
+        .stat-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 2px;
+            background: linear-gradient(90deg, transparent, var(--electric), transparent);
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+        
+        .stat-card:hover::before {
+            opacity: 1;
+        }
+        
+        .stat-card:hover {
+            transform: translateY(-4px);
+            border-color: rgba(0, 240, 255, 0.2);
+            background: linear-gradient(135deg, var(--slate) 0%, var(--graphite) 100%);
+        }
+        
+        .stat-card h3 {
+            font-family: var(--mono);
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            color: rgba(232, 244, 248, 0.5);
+            margin-bottom: 12px;
+            font-weight: 500;
+        }
+        
+        .stat-card .value {
+            font-size: 3rem;
+            font-weight: 700;
+            background: linear-gradient(135deg, var(--frost) 0%, var(--electric) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 8px;
+            line-height: 1;
+        }
+        
+        .stat-card .label {
+            font-size: 0.9rem;
+            color: rgba(232, 244, 248, 0.6);
+            font-weight: 400;
+        }
+        
+        .pulse-indicator {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--signal-green);
+            margin-left: 8px;
+            position: relative;
+            animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+        
+        .pulse-indicator::after {
+            content: '';
+            position: absolute;
+            top: -4px;
+            left: -4px;
+            right: -4px;
+            bottom: -4px;
+            border-radius: 50%;
+            border: 2px solid var(--signal-green);
+            animation: ping 2s cubic-bezier(0, 0, 0.2, 1) infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        
+        @keyframes ping {
+            75%, 100% {
+                transform: scale(2);
+                opacity: 0;
+            }
+        }
+        
+        /* Main content sections */
+        .content-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 24px;
+            margin-bottom: 40px;
+        }
+        
+        @media (max-width: 1200px) {
+            .content-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+        
+        .section-card {
+            background: var(--slate);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-radius: 4px;
+            padding: 32px;
+            position: relative;
+            animation: fadeInUp 0.6s cubic-bezier(0.16, 1, 0.3, 1) 0.5s backwards;
+        }
+        
+        .section-card h2 {
+            font-size: 1.5rem;
+            font-weight: 600;
+            margin-bottom: 24px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        
+        .section-card h2::before {
+            content: '';
+            width: 4px;
+            height: 24px;
+            background: var(--amber);
+            border-radius: 2px;
+        }
+        
+        .info-box {
+            background: rgba(0, 240, 255, 0.05);
+            border: 1px solid rgba(0, 240, 255, 0.2);
+            border-left: 3px solid var(--electric);
+            padding: 16px;
+            border-radius: 4px;
+            margin-bottom: 24px;
+            font-family: var(--mono);
+            font-size: 0.85rem;
+        }
+        
+        .info-box strong {
+            color: var(--electric);
+            margin-right: 8px;
+        }
+        
+        .form-group {
+            margin-bottom: 20px;
+        }
+        
+        .form-group label {
+            display: block;
+            font-family: var(--mono);
+            font-size: 0.8rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: rgba(232, 244, 248, 0.7);
+            margin-bottom: 8px;
+        }
+        
+        .form-group select,
+        .form-group input {
+            width: 100%;
+            background: var(--graphite);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            color: var(--frost);
+            padding: 14px 16px;
+            border-radius: 4px;
+            font-family: var(--sans);
+            font-size: 1rem;
+            transition: all 0.3s;
+        }
+        
+        .form-group select:focus,
+        .form-group input:focus {
+            outline: none;
+            border-color: var(--electric);
+            background: var(--slate);
+            box-shadow: 0 0 0 3px rgba(0, 240, 255, 0.1);
+        }
+        
+        .quick-fill-buttons {
+            display: flex;
+            gap: 8px;
+            margin-top: 8px;
+        }
+        
+        .quick-fill-btn {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            color: rgba(232, 244, 248, 0.7);
+            padding: 8px 14px;
+            border-radius: 4px;
+            font-family: var(--mono);
+            font-size: 0.75rem;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        
+        .quick-fill-btn:hover {
+            background: rgba(255, 255, 255, 0.1);
+            border-color: var(--electric);
+            color: var(--electric);
+        }
+        
+        .btn-primary {
+            width: 100%;
+            background: linear-gradient(135deg, var(--electric) 0%, #00d4e6 100%);
+            border: none;
+            color: var(--coal);
+            padding: 16px 32px;
+            border-radius: 4px;
+            font-family: var(--mono);
+            font-size: 0.95rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            cursor: pointer;
+            transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .btn-primary::before {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 0;
+            height: 0;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.3);
+            transform: translate(-50%, -50%);
+            transition: width 0.6s, height 0.6s;
+        }
+        
+        .btn-primary:hover::before {
+            width: 300px;
+            height: 300px;
+        }
+        
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 12px 32px rgba(0, 240, 255, 0.4);
+        }
+        
+        .btn-primary:active {
+            transform: translateY(0);
+        }
+        
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 24px;
+            margin: 20px 0;
+        }
+        
+        .loading.active {
+            display: block;
+        }
+        
+        .spinner {
+            width: 40px;
+            height: 40px;
+            border: 3px solid rgba(0, 240, 255, 0.2);
+            border-top-color: var(--electric);
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            margin: 0 auto 12px;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        
+        /* Logs terminal */
+        .terminal {
+            background: #000;
+            border: 1px solid rgba(0, 240, 255, 0.3);
+            border-radius: 4px;
+            padding: 20px;
+            margin-top: 24px;
+            max-height: 400px;
+            overflow-y: auto;
+            font-family: var(--mono);
+            font-size: 0.75rem;
+            line-height: 1.6;
+            position: relative;
+        }
+        
+        .terminal::before {
+            content: 'LIVE SYSTEM LOGS';
+            position: sticky;
+            top: 0;
+            display: block;
+            background: #000;
+            color: var(--electric);
+            font-size: 0.7rem;
+            letter-spacing: 0.1em;
+            margin-bottom: 12px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid rgba(0, 240, 255, 0.2);
+        }
+        
+        .terminal-content {
+            color: #00ff88;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+        
+        .terminal::-webkit-scrollbar {
+            width: 8px;
+        }
+        
+        .terminal::-webkit-scrollbar-track {
+            background: rgba(0, 0, 0, 0.3);
+        }
+        
+        .terminal::-webkit-scrollbar-thumb {
+            background: var(--electric);
+            border-radius: 4px;
+        }
+        
+        /* Call history table */
+        .call-history {
+            background: var(--slate);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-radius: 4px;
+            padding: 32px;
+            animation: fadeInUp 0.6s cubic-bezier(0.16, 1, 0.3, 1) 0.6s backwards;
+        }
+        
+        .call-history h2 {
+            font-size: 1.5rem;
+            font-weight: 600;
+            margin-bottom: 24px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        
+        .call-history h2::before {
+            content: '';
+            width: 4px;
+            height: 24px;
+            background: var(--signal-green);
+            border-radius: 2px;
+        }
+        
+        .call-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 16px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            transition: background 0.2s;
+        }
+        
+        .call-item:hover {
+            background: rgba(255, 255, 255, 0.02);
+        }
+        
+        .call-item:last-child {
+            border-bottom: none;
+        }
+        
+        .call-info strong {
+            color: var(--frost);
+            font-family: var(--mono);
+            font-size: 0.95rem;
+        }
+        
+        .call-info small {
+            color: rgba(232, 244, 248, 0.5);
+            font-size: 0.8rem;
+            display: block;
+            margin-top: 4px;
+        }
+        
+        .call-status {
+            padding: 6px 14px;
+            border-radius: 20px;
+            font-family: var(--mono);
+            font-size: 0.7rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        
+        .call-status.completed {
+            background: rgba(0, 255, 136, 0.1);
+            color: var(--signal-green);
+            border: 1px solid var(--signal-green);
+        }
+        
+        .call-status.initiated,
+        .call-status.in-progress {
+            background: rgba(255, 149, 0, 0.1);
+            color: var(--amber);
+            border: 1px solid var(--amber);
+        }
+        
+        .call-status.failed {
+            background: rgba(255, 51, 102, 0.1);
+            color: var(--signal-red);
+            border: 1px solid var(--signal-red);
+        }
+        
+        /* Accessibility */
+        @media (prefers-reduced-motion: reduce) {
+            *,
+            *::before,
+            *::after {
+                animation-duration: 0.01ms !important;
+                animation-iteration-count: 1 !important;
+                transition-duration: 0.01ms !important;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <div class="header">
+            <div class="header-content">
+                <div class="header-left">
+                    <h1>RelayX</h1>
+                    <p>Voice Intelligence Platform</p>
+                </div>
+                <div class="header-right">
+                    <button class="nav-btn" onclick="openAgentModal()">+ New Agent</button>
+                    <a href="/static/logs.html" class="nav-btn secondary">📊 System Logs</a>
+                    <button class="nav-btn" onclick="refreshStats()">↻ Refresh</button>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Agent Creation Modal -->
+        <div id="agentModal" class="modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2 id="modalTitle">Create New Agent</h2>
+                    <button class="modal-close" onclick="closeAgentModal()">✕</button>
+                </div>
+                <div class="modal-body">
+                    <div class="form-group">
+                        <label for="agentName">Agent Name</label>
+                        <input type="text" id="agentName" placeholder="e.g., Reception Bot, Sales Agent">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="templateSelect">Start with a template (optional)</label>
+                        <select id="templateSelect" onchange="handleTemplateSelect()">
+                            <option value="">Choose a template or create new...</option>
+                        </select>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="promptEditor">System Prompt</label>
+                        <textarea id="promptEditor" style="min-height: 400px; width: 100%; font-family: var(--mono); font-size: 14px; line-height: 1.8; background: rgba(10, 14, 26, 0.9); border: 2px solid rgba(0, 240, 255, 0.3); border-radius: 8px; color: var(--frost); padding: 20px; resize: vertical; box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.3);" placeholder="You are a helpful AI assistant...&#10;&#10;Write your custom system prompt here..."></textarea>
+                        <div class="char-counter" id="promptCharCounter">0 / 2000</div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                            <input type="checkbox" id="saveAsTemplate" style="width: auto;">
+                            <span>Save this prompt as a reusable template</span>
+                        </label>
+                    </div>
+                    
+                    <div class="form-group" id="templateNameGroup" style="display: none;">
+                        <label for="templateName">Template Name</label>
+                        <input type="text" id="templateName" placeholder="e.g., My Custom Receptionist">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="agentModel">LLM Model</label>
+                        <select id="agentModel">
+                            <option value="llama-3.1-8b-instant">Llama 3.1 8B (Fast)</option>
+                            <option value="llama-3.1-70b-versatile">Llama 3.1 70B (Smart)</option>
+                        </select>
+                    </div>
+                    
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+                        <div class="form-group">
+                            <label for="agentTemp">Temperature</label>
+                            <input type="number" id="agentTemp" min="0" max="1" step="0.1" value="0.7">
+                        </div>
+                        <div class="form-group">
+                            <label for="agentTokens">Max Tokens</label>
+                            <input type="number" id="agentTokens" min="50" max="500" step="10" value="150">
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" onclick="previewPrompt()">Preview</button>
+                    <button class="btn btn-secondary" onclick="closeAgentModal()">Cancel</button>
+                    <button class="btn btn-primary" id="modalSubmitBtn" onclick="createAgent()">Create Agent</button>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Stats Grid -->
+        <div class="stats-grid">
+            <div class="stat-card">
+                <h3>Total Calls</h3>
+                <div class="value" id="totalCalls">0</div>
+                <div class="label">Lifetime sessions</div>
+            </div>
+            
+            <div class="stat-card">
+                <h3>Active Calls</h3>
+                <div class="value" id="activeCalls">0</div>
+                <div class="label">
+                    In progress now
+                    <span class="pulse-indicator" id="activeIndicator"></span>
+                </div>
+            </div>
+            
+            <div class="stat-card">
+                <h3>Today's Calls</h3>
+                <div class="value" id="todayCalls">0</div>
+                <div class="label" id="callsLabel">This session</div>
+            </div>
+            
+            <div class="stat-card">
+                <h3>AI Agents</h3>
+                <div class="value" id="totalAgents">0</div>
+                <div class="label">Configured personas</div>
+            </div>
+        </div>
+        
+        <!-- Content Grid -->
+        <div class="content-grid">
+            <!-- Test Call Section -->
+            <div class="section-card">
+                <h2>Initiate Call</h2>
+                
+                <div class="info-box">
+                    <strong>PUBLIC URL:</strong>
+                    <span id="ngrokUrl">Loading...</span>
+                </div>
+                
+                <div class="form-group">
+                    <label for="agentSelect">AI Agent</label>
+                    <div style="display: flex; gap: 8px;">
+                        <select id="agentSelect" style="flex: 1;">
+                            <option value="">Loading agents...</option>
+                        </select>
+                        <button class="btn" onclick="openEditPromptModal()" title="Edit agent's system prompt">
+                            ✎ Edit Prompt
+                        </button>
+                    </div>
+                </div>
+                
+                <div class="form-group">
+                    <label for="phoneNumber">Target Number (E.164)</label>
+                    <input type="tel" id="phoneNumber" placeholder="+919876543210" value="+91">
+                    <div class="quick-fill-buttons">
+                        <button class="quick-fill-btn" onclick="document.getElementById('phoneNumber').value='+917276082005'">
+                            → +917276082005
+                        </button>
+                        <button class="quick-fill-btn" onclick="document.getElementById('phoneNumber').value='+917666815841'">
+                            → +917666815841
+                        </button>
+                    </div>
+                </div>
+                
+                <button class="btn-primary" onclick="makeTestCall()" id="callBtn">
+                    <span style="position: relative; z-index: 1;">⚡ Start Call</span>
+                </button>
+                
+                <div class="loading" id="callLoading">
+                    <div class="spinner"></div>
+                    <p>Initiating call...</p>
+                </div>
+                
+                <div id="callStatus"></div>
+            </div>
+            
+            <!-- System Logs -->
+            <div class="section-card">
+                <h2>System Monitor</h2>
+                <div class="terminal">
+                    <div class="terminal-content" id="callLogContent">Initializing...</div>
+                </div>
+            </div>
+            
+            <!-- Knowledge Base -->
+            <div class="section-card">
+                <h2>📚 Knowledge Base</h2>
+                <p style="font-size: 13px; color: #94a3b8; margin-bottom: 16px;">
+                    Add information that your AI agent can reference during calls
+                </p>
+                
+                <div class="form-group">
+                    <label for="kbAgentSelect" style="color: #e2e8f0;">Agent</label>
+                    <select id="kbAgentSelect" onchange="loadKnowledge()">
+                        <option value="">Select agent...</option>
+                    </select>
+                </div>
+                
+                <div id="knowledgeList" style="margin-bottom: 16px;">
+                    <p style="text-align: center; color: #94a3b8; padding: 20px;">
+                        Select an agent to view knowledge base
+                    </p>
+                </div>
+                
+                <div style="display: flex; gap: 8px;">
+                    <button class="btn" onclick="openAddKnowledgeModal()">+ Add Knowledge</button>
+                    <button class="btn" onclick="openAddURLModal()">🌐 Add from URL</button>
+                    <button class="btn" onclick="openUploadFileModal()">📁 Upload File</button>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Add Knowledge Modal -->
+        <div class="modal" id="knowledgeModal">
+            <div class="modal-content" style="max-width: 700px;">
+                <div class="modal-header">
+                    <h2>Add Knowledge</h2>
+                    <span class="close" onclick="closeKnowledgeModal()">&times;</span>
+                </div>
+                <div class="modal-body">
+                    <div class="form-group">
+                        <label for="kbTitle">Title</label>
+                        <input type="text" id="kbTitle" placeholder="e.g., Pricing Information">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="kbContent">Content</label>
+                        <textarea id="kbContent" rows="8" placeholder="Enter information that the AI should know...
+Example: Our pricing plans are..."></textarea>
+                    </div>
+                    
+                    <div style="font-size: 12px; color: var(--slate); margin-top: 8px;">
+                        💡 Tip: The AI will search this content when users ask related questions
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" onclick="closeKnowledgeModal()">Cancel</button>
+                    <button class="btn btn-primary" onclick="addKnowledge()">Add Knowledge</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- View Knowledge Modal -->
+        <div class="modal" id="viewKnowledgeModal">
+            <div class="modal-content" style="max-width: 900px;">
+                <div class="modal-header">
+                    <h2 id="viewKbTitle">Knowledge Entry</h2>
+                    <span class="close" onclick="closeViewKnowledgeModal()">&times;</span>
+                </div>
+                <div class="modal-body">
+                    <div style="margin-bottom: 16px;">
+                        <div id="viewKbMeta" style="display: flex; gap: 12px; flex-wrap: wrap; font-size: 12px; color: var(--slate);"></div>
+                    </div>
+                    <div class="form-group">
+                        <label>Full Content</label>
+                        <div id="viewKbContent" style="background: rgba(0, 0, 0, 0.3); border: 1px solid var(--border); border-radius: 6px; padding: 16px; max-height: 500px; overflow-y: auto; white-space: pre-wrap; font-family: var(--mono); font-size: 13px; line-height: 1.6; color: var(--frost);"></div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" onclick="closeViewKnowledgeModal()">Close</button>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Upload File Modal -->
+        <div class="modal" id="uploadFileModal">
+            <div class="modal-content" style="max-width: 600px;">
+                <div class="modal-header">
+                    <h2>Upload Knowledge File</h2>
+                    <span class="close" onclick="closeUploadFileModal()">&times;</span>
+                </div>
+                <div class="modal-body">
+                    <div class="form-group">
+                        <label for="uploadTitle">Title</label>
+                        <input type="text" id="uploadTitle" placeholder="e.g., Product Catalog">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="uploadFile">File</label>
+                        <input type="file" id="uploadFile" accept=".txt,.csv,.json" 
+                               style="width: 100%; padding: 10px; background: rgba(0, 0, 0, 0.3); border: 1px solid var(--border); border-radius: 4px; color: var(--frost); font-size: 14px;">
+                        <div style="font-size: 12px; color: var(--slate); margin-top: 8px;">
+                            Supported: .txt, .csv, .json (PDF coming soon)
+                        </div>
+                    </div>
+                    
+                    <div id="uploadStatus" style="margin-top: 12px;"></div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" onclick="closeUploadFileModal()">Cancel</button>
+                    <button class="btn btn-primary" onclick="uploadFile()" id="uploadBtn">Upload</button>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Add from URL Modal -->
+        <div class="modal" id="urlModal">
+            <div class="modal-content" style="max-width: 700px;">
+                <div class="modal-header">
+                    <h2>🌐 Add Knowledge from URL</h2>
+                    <span class="close" onclick="closeURLModal()">&times;</span>
+                </div>
+                <div class="modal-body">
+                    <div class="form-group">
+                        <label for="kbURL">Website URL</label>
+                        <input type="url" id="kbURL" placeholder="https://example.com/about" 
+                               style="font-family: 'Courier New', monospace;">
+                        <div style="font-size: 12px; color: var(--slate); margin-top: 8px;">
+                            💡 We'll scrape and extract clean text content from this webpage
+                        </div>
+                    </div>
+                    
+                    <div style="display: flex; gap: 8px; margin-bottom: 16px;">
+                        <button class="btn btn-secondary" onclick="previewURL()" id="previewBtn" style="flex: 1;">
+                            👁️ Preview Content
+                        </button>
+                    </div>
+                    
+                    <!-- Preview Area -->
+                    <div id="urlPreview" style="display: none; margin-top: 16px; padding: 16px; background: rgba(0, 0, 0, 0.3); border: 1px solid var(--border); border-radius: 6px;">
+                        <div style="margin-bottom: 12px;">
+                            <div style="font-size: 12px; color: var(--slate); margin-bottom: 4px;">Title</div>
+                            <div id="previewTitle" style="color: var(--cyan); font-size: 14px; font-weight: 600;"></div>
+                        </div>
+                        <div style="margin-bottom: 12px;">
+                            <div style="font-size: 12px; color: var(--slate); margin-bottom: 4px;">Domain</div>
+                            <div id="previewDomain" style="color: var(--aurora); font-size: 13px;"></div>
+                        </div>
+                        <div style="margin-bottom: 12px;">
+                            <div style="font-size: 12px; color: var(--slate); margin-bottom: 4px;">Content Preview</div>
+                            <div id="previewContent" style="color: var(--frost); font-size: 13px; line-height: 1.6; max-height: 200px; overflow-y: auto;"></div>
+                        </div>
+                        <div style="display: flex; gap: 16px; font-size: 12px; color: var(--slate);">
+                            <div>📊 <span id="previewWordCount"></span> words</div>
+                            <div>📄 <span id="previewLength"></span> characters</div>
+                        </div>
+                    </div>
+                    
+                    <div class="form-group" id="customTitleGroup" style="display: none; margin-top: 16px;">
+                        <label for="kbCustomTitle">Custom Title (optional)</label>
+                        <input type="text" id="kbCustomTitle" placeholder="Leave blank to use webpage title">
+                    </div>
+                    
+                    <div id="urlStatus" style="margin-top: 12px;"></div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" onclick="closeURLModal()">Cancel</button>
+                    <button class="btn btn-primary" onclick="addFromURL()" id="addURLBtn" style="display: none;">
+                        ✅ Add to Knowledge Base
+                    </button>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Call History -->
+        <div class="call-history">
+            <h2>Recent Activity</h2>
+            <div id="callHistoryList">
+                <p style="text-align: center; color: rgba(232, 244, 248, 0.5); padding: 40px 0;">
+                    Loading call history...
+                </p>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        // Auto-refresh intervals
+        setInterval(refreshStats, 10000);
+        setInterval(refreshAPICredits, 15000);
+        setInterval(refreshLogs, 5000);
+        
+        // Initial load
+        refreshStats();
+        refreshAPICredits();
+        refreshLogs();
+        
+        // Modal Functions - Declare global state at top
+        let currentEditingAgentId = null;
+        
+        async function openAgentModal() {
+            currentEditingAgentId = null;
+            document.getElementById('modalTitle').textContent = 'Create New Agent';
+            document.getElementById('modalSubmitBtn').textContent = 'Create Agent';
+            document.getElementById('modalSubmitBtn').onclick = createAgent;
+            document.getElementById('agentModal').classList.add('active');
+            await loadTemplates();
+        }
+        
+        function closeAgentModal() {
+            document.getElementById('agentModal').classList.remove('active');
+            document.getElementById('agentName').value = '';
+            document.getElementById('agentName').disabled = false;
+            document.getElementById('templateSelect').value = '';
+            document.getElementById('promptEditor').value = '';
+            document.getElementById('saveAsTemplate').checked = false;
+            document.getElementById('templateName').value = '';
+            document.getElementById('templateNameGroup').style.display = 'none';
+            currentEditingAgentId = null;
+        }
+        
+        async function loadTemplates() {
+            try {
+                const response = await fetch('/api/templates');
+                const templates = await response.json();
+                
+                const select = document.getElementById('templateSelect');
+                if (templates && templates.length > 0) {
+                    select.innerHTML = '<option value="">Choose a template or create new...</option>' +
+                        templates.map(t => `<option value="${t.id}" data-content="${encodeURIComponent(t.content)}">${t.name} — ${t.category}</option>`).join('');
+                } else {
+                    select.innerHTML = '<option value="">No templates available</option>';
+                }
+            } catch (error) {
+                console.error('Failed to load templates:', error);
+                document.getElementById('templateSelect').innerHTML = 
+                    '<option value="">Failed to load templates</option>';
+            }
+        }
+        
+        function handleTemplateSelect() {
+            const select = document.getElementById('templateSelect');
+            const selectedOption = select.options[select.selectedIndex];
+            const editor = document.getElementById('promptEditor');
+            
+            if (selectedOption.value) {
+                // Load template content into editor
+                const content = decodeURIComponent(selectedOption.dataset.content);
+                editor.value = content;
+                updateCharCounter();
+            } else {
+                // Clear editor when "Choose a template..." is selected
+                editor.value = '';
+                updateCharCounter();
+            }
+        }
+        
+        function updateCharCounter() {
+            const editor = document.getElementById('promptEditor');
+            const counter = document.getElementById('promptCharCounter');
+            const length = editor.value.length;
+            counter.textContent = `${length} / 2000`;
+            counter.style.color = length > 2000 ? 'var(--signal-red)' : 'var(--slate)';
+        }
+        
+        async function previewPrompt() {
+            const promptText = document.getElementById('promptEditor').value.trim();
+            
+            if (!promptText) {
+                alert('Please enter a prompt to preview');
+                return;
+            }
+            
+            try {
+                const response = await fetch('/api/preview', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        prompt_text: promptText,
+                        sample_user_input: 'Hello, how can you help me?',
+                        temperature: parseFloat(document.getElementById('agentTemp').value),
+                        max_tokens: parseInt(document.getElementById('agentTokens').value)
+                    })
+                });
+                
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || 'Preview failed');
+                }
+                
+                const result = await response.json();
+                alert(`Preview Response:\n\n${result.preview_response}`);
+            } catch (error) {
+                console.error('Preview failed:', error);
+                alert(`Error: ${error.message}`);
+            }
+        }
+        
+        async function createAgent() {
+            const name = document.getElementById('agentName').value.trim();
+            const promptText = document.getElementById('promptEditor').value.trim();
+            const model = document.getElementById('agentModel').value;
+            const temperature = parseFloat(document.getElementById('agentTemp').value);
+            const maxTokens = parseInt(document.getElementById('agentTokens').value);
+            const saveAsTemplate = document.getElementById('saveAsTemplate').checked;
+            
+            if (!name) {
+                alert('Please enter an agent name');
+                return;
+            }
+            
+            if (!promptText) {
+                alert('Please enter a system prompt');
+                return;
+            }
+            
+            // Determine template_source
+            const select = document.getElementById('templateSelect');
+            const selectedOption = select.options[select.selectedIndex];
+            let templateSource = null;
+            if (selectedOption.value && selectedOption.text !== 'Choose a template or create new...') {
+                // Extract template name from "Name — category" format
+                templateSource = selectedOption.text.split(' — ')[0];
+            }
+            
+            try {
+                // If "Save as template" is checked, create template first
+                if (saveAsTemplate) {
+                    const templateName = document.getElementById('templateName').value.trim();
+                    if (!templateName) {
+                        alert('Please enter a template name');
+                        return;
+                    }
+                    
+                    const templateResponse = await fetch('/api/templates', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            name: templateName,
+                            content: promptText,
+                            description: `Custom template for ${name}`,
+                            category: 'custom'
+                        })
+                    });
+                    
+                    if (!templateResponse.ok) {
+                        const error = await templateResponse.json();
+                        throw new Error(error.detail || 'Failed to create template');
+                    }
+                    
+                    // Update template_source to the new template name
+                    templateSource = templateName;
+                }
+                
+                // Create the agent
+                const payload = {
+                    name: name,
+                    prompt_text: promptText,
+                    template_source: templateSource,
+                    llm_model: model,
+                    temperature: temperature,
+                    max_tokens: maxTokens,
+                    voice_settings: {},
+                    is_active: true
+                };
+                
+                const response = await fetch('/agents', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || 'Failed to create agent');
+                }
+                
+                const result = await response.json();
+                alert(`Agent "${name}" created successfully!`);
+                closeAgentModal();
+                refreshStats();
+            } catch (error) {
+                console.error('Failed to create agent:', error);
+                alert(`Error: ${error.message}`);
+            }
+        }
+        
+        async function openEditPromptModal() {
+            const agentId = document.getElementById('agentSelect').value;
+            if (!agentId) {
+                alert('Please select an agent to edit');
+                return;
+            }
+            
+            try {
+                // Fetch agent details
+                const response = await fetch(`/agents/${agentId}`);
+                if (!response.ok) {
+                    throw new Error('Failed to fetch agent details');
+                }
+                
+                const agent = await response.json();
+                
+                // Set edit mode
+                currentEditingAgentId = agentId;
+                document.getElementById('modalTitle').textContent = 'Edit Agent Prompt';
+                document.getElementById('modalSubmitBtn').textContent = 'Update Prompt';
+                document.getElementById('modalSubmitBtn').onclick = updateAgentPrompt;
+                
+                // Populate form
+                document.getElementById('agentName').value = agent.name;
+                document.getElementById('agentName').disabled = true; // Don't allow name change in edit mode
+                document.getElementById('promptEditor').value = agent.prompt_text || '';
+                document.getElementById('agentModel').value = agent.llm_model || 'llama-3.1-8b-instant';
+                document.getElementById('agentTemp').value = agent.temperature || 0.7;
+                document.getElementById('agentTokens').value = agent.max_tokens || 150;
+                
+                // Clear template selection in edit mode
+                document.getElementById('templateSelect').value = '';
+                
+                updateCharCounter();
+                
+                // Open modal
+                document.getElementById('agentModal').classList.add('active');
+                await loadTemplates();
+            } catch (error) {
+                console.error('Failed to open edit modal:', error);
+                alert(`Error: ${error.message}`);
+            }
+        }
+        
+        async function updateAgentPrompt() {
+            if (!currentEditingAgentId) {
+                alert('No agent selected for editing');
+                return;
+            }
+            
+            const promptText = document.getElementById('promptEditor').value.trim();
+            const model = document.getElementById('agentModel').value;
+            const temperature = parseFloat(document.getElementById('agentTemp').value);
+            const maxTokens = parseInt(document.getElementById('agentTokens').value);
+            const saveAsTemplate = document.getElementById('saveAsTemplate').checked;
+            
+            if (!promptText) {
+                alert('Please enter a system prompt');
+                return;
+            }
+            
+            try {
+                // If "Save as template" is checked, create template first
+                let templateSource = null;
+                if (saveAsTemplate) {
+                    const templateName = document.getElementById('templateName').value.trim();
+                    if (!templateName) {
+                        alert('Please enter a template name');
+                        return;
+                    }
+                    
+                    const templateResponse = await fetch('/api/templates', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            name: templateName,
+                            content: promptText,
+                            description: `Custom template created from edit`,
+                            category: 'custom'
+                        })
+                    });
+                    
+                    if (!templateResponse.ok) {
+                        const error = await templateResponse.json();
+                        throw new Error(error.detail || 'Failed to create template');
+                    }
+                    
+                    templateSource = templateName;
+                }
+                
+                // Update the agent
+                const payload = {
+                    prompt_text: promptText,
+                    template_source: templateSource,
+                    llm_model: model,
+                    temperature: temperature,
+                    max_tokens: maxTokens
+                };
+                
+                const response = await fetch(`/agents/${currentEditingAgentId}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || 'Failed to update agent');
+                }
+                
+                const result = await response.json();
+                alert('Agent prompt updated successfully!');
+                closeAgentModal();
+                
+                // Re-enable name field
+                document.getElementById('agentName').disabled = false;
+                
+                refreshStats();
+            } catch (error) {
+                console.error('Failed to update agent:', error);
+                alert(`Error: ${error.message}`);
+            }
+        }
+        
+        // Character counter for prompt editor
+        document.addEventListener('DOMContentLoaded', () => {
+            const promptEditor = document.getElementById('promptEditor');
+            const charCounter = document.getElementById('promptCharCounter');
+            const saveAsTemplateCheckbox = document.getElementById('saveAsTemplate');
+            const templateNameGroup = document.getElementById('templateNameGroup');
+            
+            // Update character counter on input
+            promptEditor?.addEventListener('input', updateCharCounter);
+            
+            // Show/hide template name field based on checkbox
+            saveAsTemplateCheckbox?.addEventListener('change', () => {
+                templateNameGroup.style.display = saveAsTemplateCheckbox.checked ? 'block' : 'none';
+            });
+        });
+        
+        async function refreshStats() {
+            try {
+                // Get agents
+                const agentsResponse = await fetch('/agents').then(r => r.json());
+                const agents = agentsResponse.value || agentsResponse;
+                const select = document.getElementById('agentSelect');
+                
+                if (agents && agents.length > 0) {
+                    select.innerHTML = agents.map(a => {
+                        // Show badge based on template_source
+                        let displayText = a.name;
+                        if (a.template_source) {
+                            displayText += ` [Based on: ${a.template_source}]`;
+                        } else {
+                            displayText += ' [Custom]';
+                        }
+                        return `<option value="${a.id}">${displayText}</option>`;
+                    }).join('');
+                } else {
+                    select.innerHTML = '<option value="">No agents configured</option>';
+                }
+                
+                document.getElementById('totalAgents').textContent = agents ? agents.length : 0;
+                
+                // Get calls
+                const callsResponse = await fetch('/calls').then(r => r.json());
+                const calls = callsResponse.value || callsResponse;
+                const historyList = document.getElementById('callHistoryList');
+                
+                if (calls && calls.length > 0) {
+                    const activeCalls = calls.filter(c => c.status === 'in-progress' || c.status === 'initiated').length;
+                    document.getElementById('totalCalls').textContent = calls.length;
+                    document.getElementById('activeCalls').textContent = activeCalls;
+                    
+                    historyList.innerHTML = calls.slice(0, 10).map(call => `
+                        <div class="call-item">
+                            <div class="call-info">
+                                <strong>${call.to_phone || call.to_number}</strong>
+                                <small>${new Date(call.created_at).toLocaleString()}</small>
+                            </div>
+                            <span class="call-status ${call.status}">${call.status}</span>
+                        </div>
+                    `).join('');
+                } else {
+                    document.getElementById('totalCalls').textContent = 0;
+                    document.getElementById('activeCalls').textContent = 0;
+                    historyList.innerHTML = '<p style="text-align: center; color: rgba(232, 244, 248, 0.5); padding: 40px 0;">No calls yet</p>';
+                }
+                
+            } catch (error) {
+                console.error('Error refreshing stats:', error);
+            }
+        }
+        
+        async function refreshAPICredits() {
+            try {
+                const info = await fetch('/info').then(r => r.json());
+                if (info.today_calls !== undefined) {
+                    document.getElementById('todayCalls').textContent = info.today_calls.toLocaleString();
+                }
+                
+                const ngrokUrl = info.ngrok_url || info.public_url || 'Not configured';
+                document.getElementById('ngrokUrl').textContent = ngrokUrl;
+            } catch (error) {
+                console.error('Error refreshing info:', error);
+            }
+        }
+        
+        async function refreshLogs() {
+            try {
+                const response = await fetch('/logs');
+                const data = await response.json();
+                const logContent = document.getElementById('callLogContent');
+                
+                if (data.logs) {
+                    const lines = data.logs.split('\n');
+                    const filtered = lines.filter(line => 
+                        line.includes('INFO') || 
+                        line.includes('ERROR') || 
+                        line.includes('WARNING') ||
+                        line.includes('TwiML') ||
+                        line.includes('Gather') ||
+                        line.includes('Speech')
+                    ).slice(-20).join('\n');
+                    
+                    logContent.textContent = filtered || 'No recent logs';
+                    logContent.scrollTop = logContent.scrollHeight;
+                }
+            } catch (error) {
+                console.error('Error refreshing logs:', error);
+            }
+        }
+        
+        async function makeTestCall() {
+            const agentId = document.getElementById('agentSelect').value;
+            const phoneNumber = document.getElementById('phoneNumber').value;
+            const callBtn = document.getElementById('callBtn');
+            const loading = document.getElementById('callLoading');
+            const statusDiv = document.getElementById('callStatus');
+            
+            if (!agentId) {
+                alert('Please select an AI agent');
+                return;
+            }
+            
+            if (!phoneNumber || phoneNumber === '+91') {
+                alert('Please enter a valid phone number');
+                return;
+            }
+            
+            try {
+                callBtn.disabled = true;
+                loading.classList.add('active');
+                statusDiv.innerHTML = '';
+                
+                const response = await fetch('/calls/outbound', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        agent_id: agentId,
+                        to_number: phoneNumber,
+                        metadata: { source: 'dashboard' }
+                    })
+                });
+                
+                const result = await response.json();
+                
+                if (response.ok) {
+                    statusDiv.innerHTML = `
+                        <div style="background: rgba(0, 255, 136, 0.1); border: 1px solid var(--signal-green); border-left: 3px solid var(--signal-green); padding: 16px; border-radius: 4px; margin-top: 20px;">
+                            <strong style="color: var(--signal-green);">✓ Call Initiated</strong><br>
+                            <small style="color: rgba(232, 244, 248, 0.7); font-family: var(--mono); font-size: 0.8rem; display: block; margin-top: 8px;">
+                                Call ID: ${result.id}<br>
+                                Status: ${result.status}
+                            </small>
+                        </div>
+                    `;
+                    
+                    setTimeout(refreshStats, 2000);
+                } else {
+                    throw new Error(result.detail || 'Call failed');
+                }
+                
+            } catch (error) {
+                statusDiv.innerHTML = `
+                    <div style="background: rgba(255, 51, 102, 0.1); border: 1px solid var(--signal-red); border-left: 3px solid var(--signal-red); padding: 16px; border-radius: 4px; margin-top: 20px;">
+                        <strong style="color: var(--signal-red);">✗ Error</strong><br>
+                        <small style="color: rgba(232, 244, 248, 0.7); font-size: 0.85rem; display: block; margin-top: 8px;">
+                            ${error.message}
+                        </small>
+                    </div>
+                `;
+            } finally {
+                callBtn.disabled = false;
+                loading.classList.remove('active');
+            }
+        }
+        
+        // Knowledge Base Functions
+        async function loadKnowledgeAgents() {
+            try {
+                const response = await fetch('/agents');
+                const agents = await response.json();
+                const select = document.getElementById('kbAgentSelect');
+                select.innerHTML = '<option value="">Select agent...</option>';
+                agents.forEach(agent => {
+                    select.innerHTML += `<option value="${agent.id}">${agent.name}</option>`;
+                });
+            } catch (error) {
+                console.error('Error loading agents:', error);
+            }
+        }
+        
+        async function loadKnowledge() {
+            const agentId = document.getElementById('kbAgentSelect').value;
+            const list = document.getElementById('knowledgeList');
+            
+            if (!agentId) {
+                list.innerHTML = '<p style="text-align: center; color: var(--slate); padding: 20px;">Select an agent to view knowledge base</p>';
+                return;
+            }
+            
+            try {
+                const response = await fetch(`/api/agents/${agentId}/knowledge`);
+                const knowledge = await response.json();
+                
+                if (knowledge.length === 0) {
+                    list.innerHTML = '<p style="text-align: center; color: var(--slate); padding: 20px;">No knowledge entries yet</p>';
+                    return;
+                }
+                
+                list.innerHTML = knowledge.map(kb => {
+                    // Determine source icon and text
+                    let sourceIcon = '📝';
+                    let sourceText = 'Manual entry';
+                    
+                    if (kb.source_url) {
+                        sourceIcon = '🌐';
+                        try {
+                            const domain = new URL(kb.source_url).hostname.replace('www.', '');
+                            sourceText = domain;
+                        } catch {
+                            sourceText = 'Web URL';
+                        }
+                    } else if (kb.source_file) {
+                        sourceIcon = '📁';
+                        sourceText = kb.source_file;
+                    }
+                    
+                    const wordCount = kb.metadata?.word_count || kb.content.split(/\s+/).length;
+                    
+                    return `
+                    <div style="background: var(--slate); border: 1px solid rgba(0, 240, 255, 0.2); border-radius: 6px; padding: 16px; margin-bottom: 12px;">
+                        <div style="display: flex; justify-content: space-between; align-items: start;">
+                            <div style="flex: 1;">
+                                <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
+                                    <strong style="color: var(--electric); font-size: 15px;">${kb.title}</strong>
+                                    <span style="font-size: 11px; color: #a0aec0; background: rgba(0, 0, 0, 0.5); padding: 3px 10px; border-radius: 12px; border: 1px solid rgba(255, 255, 255, 0.1);">
+                                        ${sourceIcon} ${sourceText}
+                                    </span>
+                                </div>
+                                <p style="font-size: 13px; color: #e2e8f0; margin: 0 0 10px 0; line-height: 1.6;">
+                                    ${kb.content.substring(0, 150)}${kb.content.length > 150 ? '...' : ''}
+                                </p>
+                                <div style="font-size: 12px; color: #94a3b8;">
+                                    📊 ${wordCount.toLocaleString()} words
+                                </div>
+                            </div>
+                            <div style="display: flex; gap: 8px; margin-left: 12px;">
+                                <button class="btn" style="padding: 6px 14px; font-size: 12px; background: rgba(0, 240, 255, 0.1); border: 1px solid var(--electric);" onclick='viewKnowledge(${JSON.stringify(kb)})'>👁️ View</button>
+                                <button class="btn" style="padding: 6px 14px; font-size: 12px; background: rgba(255, 51, 102, 0.1); border: 1px solid var(--signal-red);" onclick="deleteKnowledge('${kb.id}')">🗑️</button>
+                            </div>
+                        </div>
+                    </div>
+                `}).join('');
+                
+            } catch (error) {
+                console.error('Error loading knowledge:', error);
+                list.innerHTML = '<p style="text-align: center; color: var(--signal-red); padding: 20px;">Error loading knowledge</p>';
+            }
+        }
+        
+        function openAddKnowledgeModal() {
+            const agentId = document.getElementById('kbAgentSelect').value;
+            if (!agentId) {
+                alert('Please select an agent first');
+                return;
+            }
+            const modal = document.getElementById('knowledgeModal');
+            modal.style.display = 'flex';
+        }
+        
+        function closeKnowledgeModal() {
+            document.getElementById('knowledgeModal').style.display = 'none';
+            document.getElementById('kbTitle').value = '';
+            document.getElementById('kbContent').value = '';
+        }
+
+        function viewKnowledge(kb) {
+            const modal = document.getElementById('viewKnowledgeModal');
+            document.getElementById('viewKbTitle').textContent = kb.title;
+            document.getElementById('viewKbContent').textContent = kb.content;
+            
+            // Build metadata display
+            let metaItems = [];
+            
+            // Source
+            if (kb.source_url) {
+                const domain = new URL(kb.source_url).hostname.replace('www.', '');
+                metaItems.push(`🌐 <strong>Source:</strong> <a href="${kb.source_url}" target="_blank" style="color: var(--cyan);">${domain}</a>`);
+            } else if (kb.source_file) {
+                metaItems.push(`📁 <strong>Source:</strong> ${kb.source_file}`);
+            } else {
+                metaItems.push(`📝 <strong>Source:</strong> Manual entry`);
+            }
+            
+            // Word count
+            const wordCount = kb.metadata?.word_count || kb.content.split(/\s+/).length;
+            metaItems.push(`📊 <strong>Words:</strong> ${wordCount.toLocaleString()}`);
+            
+            // Character count
+            metaItems.push(`🔤 <strong>Characters:</strong> ${kb.content.length.toLocaleString()}`);
+            
+            // Created date
+            if (kb.created_at) {
+                const date = new Date(kb.created_at);
+                metaItems.push(`📅 <strong>Created:</strong> ${date.toLocaleDateString()} ${date.toLocaleTimeString()}`);
+            }
+            
+            // Active status
+            const statusBadge = kb.is_active ? 
+                '<span style="color: var(--signal-green);">✅ Active</span>' : 
+                '<span style="color: var(--signal-red);">❌ Inactive</span>';
+            metaItems.push(`<strong>Status:</strong> ${statusBadge}`);
+            
+            document.getElementById('viewKbMeta').innerHTML = metaItems.map(item => 
+                `<div style="padding: 6px 12px; background: rgba(0, 0, 0, 0.3); border-radius: 4px; border: 1px solid var(--border);">${item}</div>`
+            ).join('');
+            
+            modal.style.display = 'flex';
+        }
+
+        function closeViewKnowledgeModal() {
+            document.getElementById('viewKnowledgeModal').style.display = 'none';
+        }
+        
+        function openUploadFileModal() {
+            const agentId = document.getElementById('kbAgentSelect').value;
+            if (!agentId) {
+                alert('Please select an agent first');
+                return;
+            }
+            const modal = document.getElementById('uploadFileModal');
+            modal.style.display = 'flex';
+        }
+        
+        function closeUploadFileModal() {
+            document.getElementById('uploadFileModal').style.display = 'none';
+            document.getElementById('uploadTitle').value = '';
+            document.getElementById('uploadFile').value = '';
+            document.getElementById('uploadStatus').innerHTML = '';
+        }
+        
+        async function uploadFile() {
+            const agentId = document.getElementById('kbAgentSelect').value;
+            const title = document.getElementById('uploadTitle').value.trim();
+            const fileInput = document.getElementById('uploadFile');
+            const file = fileInput.files[0];
+            const uploadBtn = document.getElementById('uploadBtn');
+            const statusDiv = document.getElementById('uploadStatus');
+            
+            if (!title) {
+                alert('Please enter a title');
+                return;
+            }
+            
+            if (!file) {
+                alert('Please select a file');
+                return;
+            }
+            
+            // Disable button and show progress
+            uploadBtn.disabled = true;
+            statusDiv.innerHTML = '<p style="color: var(--cyan); font-size: 13px;">Uploading...</p>';
+            
+            try {
+                const formData = new FormData();
+                formData.append('agent_id', agentId);
+                formData.append('title', title);
+                formData.append('file', file);
+                
+                const response = await fetch('/api/knowledge/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                if (response.ok) {
+                    statusDiv.innerHTML = '<p style="color: var(--signal-green); font-size: 13px;">✓ File uploaded successfully!</p>';
+                    setTimeout(() => {
+                        closeUploadFileModal();
+                        loadKnowledge();
+                    }, 1500);
+                } else {
+                    const error = await response.json();
+                    statusDiv.innerHTML = `<p style="color: var(--signal-red); font-size: 13px;">✗ Error: ${error.detail || 'Upload failed'}</p>`;
+                }
+            } catch (error) {
+                console.error('Error uploading file:', error);
+                statusDiv.innerHTML = `<p style="color: var(--signal-red); font-size: 13px;">✗ Error: ${error.message}</p>`;
+            } finally {
+                uploadBtn.disabled = false;
+            }
+        }
+        
+        // URL Scraping Functions
+        function openAddURLModal() {
+            const agentId = document.getElementById('kbAgentSelect').value;
+            if (!agentId) {
+                alert('Please select an agent first');
+                return;
+            }
+            const modal = document.getElementById('urlModal');
+            modal.style.display = 'flex';
+        }
+        
+        function closeURLModal() {
+            document.getElementById('urlModal').style.display = 'none';
+            document.getElementById('kbURL').value = '';
+            document.getElementById('kbCustomTitle').value = '';
+            document.getElementById('urlPreview').style.display = 'none';
+            document.getElementById('customTitleGroup').style.display = 'none';
+            document.getElementById('addURLBtn').style.display = 'none';
+            document.getElementById('urlStatus').innerHTML = '';
+        }
+        
+        async function previewURL() {
+            const url = document.getElementById('kbURL').value.trim();
+            const previewBtn = document.getElementById('previewBtn');
+            const statusDiv = document.getElementById('urlStatus');
+            const previewDiv = document.getElementById('urlPreview');
+            const addBtn = document.getElementById('addURLBtn');
+            const customTitleGroup = document.getElementById('customTitleGroup');
+            
+            if (!url) {
+                alert('Please enter a URL');
+                return;
+            }
+            
+            // Validate URL format
+            try {
+                new URL(url);
+            } catch (e) {
+                alert('Please enter a valid URL (must start with http:// or https://)');
+                return;
+            }
+            
+            // Disable button and show progress
+            previewBtn.disabled = true;
+            statusDiv.innerHTML = '<p style="color: var(--cyan); font-size: 13px;">🔍 Scraping webpage...</p>';
+            previewDiv.style.display = 'none';
+            addBtn.style.display = 'none';
+            
+            try {
+                const response = await fetch(`/api/knowledge/preview-url?url=${encodeURIComponent(url)}`);
+                const data = await response.json();
+                
+                if (response.ok && data.success) {
+                    // Show preview
+                    document.getElementById('previewTitle').textContent = data.title;
+                    document.getElementById('previewDomain').textContent = data.domain;
+                    document.getElementById('previewContent').textContent = data.content_preview;
+                    document.getElementById('previewWordCount').textContent = data.word_count.toLocaleString();
+                    document.getElementById('previewLength').textContent = data.content_length.toLocaleString();
+                    
+                    previewDiv.style.display = 'block';
+                    customTitleGroup.style.display = 'block';
+                    addBtn.style.display = 'block';
+                    
+                    statusDiv.innerHTML = '<p style="color: var(--signal-green); font-size: 13px;">✓ Content scraped successfully!</p>';
+                } else {
+                    statusDiv.innerHTML = `<p style="color: var(--signal-red); font-size: 13px;">✗ Error: ${data.detail || 'Failed to scrape URL'}</p>`;
+                }
+            } catch (error) {
+                console.error('Error previewing URL:', error);
+                statusDiv.innerHTML = `<p style="color: var(--signal-red); font-size: 13px;">✗ Error: ${error.message}</p>`;
+            } finally {
+                previewBtn.disabled = false;
+            }
+        }
+        
+        async function addFromURL() {
+            const agentId = document.getElementById('kbAgentSelect').value;
+            const url = document.getElementById('kbURL').value.trim();
+            const customTitle = document.getElementById('kbCustomTitle').value.trim();
+            const addBtn = document.getElementById('addURLBtn');
+            const statusDiv = document.getElementById('urlStatus');
+            
+            // Disable button and show progress
+            addBtn.disabled = true;
+            statusDiv.innerHTML = '<p style="color: var(--cyan); font-size: 13px;">💾 Adding to knowledge base...</p>';
+            
+            try {
+                const response = await fetch('/api/knowledge/from-url', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        agent_id: agentId,
+                        url: url,
+                        custom_title: customTitle || null
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok && data.success) {
+                    statusDiv.innerHTML = `<p style="color: var(--signal-green); font-size: 13px;">✓ Added ${data.scraped_data.word_count} words from ${data.scraped_data.domain}!</p>`;
+                    setTimeout(() => {
+                        closeURLModal();
+                        loadKnowledge();
+                    }, 1500);
+                } else {
+                    statusDiv.innerHTML = `<p style="color: var(--signal-red); font-size: 13px;">✗ Error: ${data.detail || 'Failed to add knowledge'}</p>`;
+                    addBtn.disabled = false;
+                }
+            } catch (error) {
+                console.error('Error adding from URL:', error);
+                statusDiv.innerHTML = `<p style="color: var(--signal-red); font-size: 13px;">✗ Error: ${error.message}</p>`;
+                addBtn.disabled = false;
+            }
+        }
+        
+        async function addKnowledge() {
+            const agentId = document.getElementById('kbAgentSelect').value;
+            const title = document.getElementById('kbTitle').value.trim();
+            const content = document.getElementById('kbContent').value.trim();
+            
+            if (!title || !content) {
+                alert('Please fill in both title and content');
+                return;
+            }
+            
+            try {
+                const response = await fetch('/api/knowledge', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        agent_id: agentId,
+                        title: title,
+                        content: content
+                    })
+                });
+                
+                if (response.ok) {
+                    closeKnowledgeModal();
+                    await loadKnowledge();
+                } else {
+                    const error = await response.json();
+                    alert(`Error: ${error.detail || 'Failed to add knowledge'}`);
+                }
+            } catch (error) {
+                console.error('Error adding knowledge:', error);
+                alert('Error adding knowledge');
+            }
+        }
+        
+        async function deleteKnowledge(knowledgeId) {
+            if (!confirm('Delete this knowledge entry?')) return;
+            
+            try {
+                const response = await fetch(`/api/knowledge/${knowledgeId}`, {
+                    method: 'DELETE'
+                });
+                
+                if (response.ok) {
+                    await loadKnowledge();
+                } else {
+                    alert('Error deleting knowledge');
+                }
+            } catch (error) {
+                console.error('Error deleting knowledge:', error);
+                alert('Error deleting knowledge');
+            }
+        }
+        
+        // Load knowledge agents on page load
+        loadKnowledgeAgents();
+    </script>
+</body>
+</html>
