@@ -19,8 +19,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy voice gateway code
 COPY voice_gateway /app
 
-# Copy shared modules
-COPY ../shared /app/shared
+# Copy shared modules (requires repository root as Docker build context)
+COPY shared /app/shared
 
 # Create logs and cache directories
 RUN mkdir -p logs .cache
