@@ -19,6 +19,21 @@ class SarvamClient:
         
         self.base_url = "https://api.sarvam.ai"
         self.headers = {"api-subscription-key": self.api_key}
+        self.last_stt_status_code = None
+        self.last_stt_error_code = None
+        self.last_stt_error_message = None
+
+    def _reset_stt_error(self):
+        self.last_stt_status_code = None
+        self.last_stt_error_code = None
+        self.last_stt_error_message = None
+
+    def get_last_stt_error(self) -> dict:
+        return {
+            "status_code": self.last_stt_status_code,
+            "error_code": self.last_stt_error_code,
+            "message": self.last_stt_error_message,
+        }
 
     async def text_to_speech(self, text: str, language_code: str = "hi-IN", speaker_gender: str = "Male") -> bytes:
         """
@@ -78,13 +93,15 @@ class SarvamClient:
             Transcribed text
         """
         try:
+            self._reset_stt_error()
             url = f"{self.base_url}/speech-to-text"
             
             # Create multipart form data
             files = {'file': ('audio.wav', audio_data, 'audio/wav')}
             data = {
                 'language_code': language_code,
-                'model': 'saarika:v2.5' 
+                'model': 'saaras:v3',
+                'mode': 'transcribe',
             }
             
             # Note: httpx handles multipart boundaries automatically
@@ -93,15 +110,31 @@ class SarvamClient:
                 headers_no_ct = {k: v for k, v in self.headers.items() if k.lower() != 'content-type'}
                 
                 response = await client.post(url, files=files, data=data, headers=headers_no_ct, timeout=10.0)
+                # Temporary diagnostics for 429 root-cause investigation.
+                print("SARVAM RESPONSE STATUS:", response.status_code)
+                print("SARVAM RESPONSE BODY:", response.text)
                 
                 if response.status_code != 200:
+                    self.last_stt_status_code = response.status_code
+                    try:
+                        payload = response.json()
+                        err = payload.get("error", {}) if isinstance(payload, dict) else {}
+                        self.last_stt_error_code = err.get("code")
+                        self.last_stt_error_message = err.get("message") or response.text
+                    except Exception:
+                        self.last_stt_error_code = None
+                        self.last_stt_error_message = response.text
                     logger.error(f"Sarvam STT error {response.status_code}: {response.text}")
                     return ""
                 
                 result = response.json()
+                self._reset_stt_error()
                 return result.get("transcript", "")
                 
         except Exception as e:
+            self.last_stt_status_code = -1
+            self.last_stt_error_code = "exception"
+            self.last_stt_error_message = str(e)
             logger.error(f"Sarvam STT exception: {e}")
             return ""
 

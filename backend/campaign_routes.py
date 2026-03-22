@@ -256,19 +256,24 @@ async def list_campaigns(
 ):
     """List campaigns for the authenticated user"""
     try:
-        query = db.client.table("bulk_campaigns").select("*, agent:agent_id(name)").eq("user_id", user_id).order("created_at", desc=True).limit(limit)
+        query = db.client.table("bulk_campaigns").select("*").eq("user_id", user_id).order("created_at", desc=True).limit(limit)
         
         if state:
             query = query.eq("state", state)
         
         result = query.execute()
+
+        # Resolve agent names in a second query to avoid join alias/fk parsing issues.
+        agent_names = {}
+        agent_ids = list({c.get("agent_id") for c in (result.data or []) if c.get("agent_id")})
+        if agent_ids:
+            agent_result = db.client.table("agents").select("id,name").in_("id", agent_ids).execute()
+            agent_names = {a.get("id"): a.get("name") for a in (agent_result.data or [])}
         
-        # Flatten agent data
+        # Attach agent_name for frontend compatibility.
         campaigns = []
         for campaign in (result.data or []):
-            agent_data = campaign.pop('agent', None)
-            if agent_data and isinstance(agent_data, dict):
-                campaign['agent_name'] = agent_data.get('name')
+            campaign['agent_name'] = agent_names.get(campaign.get("agent_id"))
             campaigns.append(campaign)
         
         return {"campaigns": campaigns}

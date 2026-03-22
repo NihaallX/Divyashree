@@ -1,6 +1,6 @@
 # Quick Start Guide
 
-Get RelayX running in 5 minutes! ⚡
+Get Divyashree running in 5 minutes! ⚡
 
 ## Prerequisites Check
 
@@ -16,7 +16,7 @@ ngrok version       # Should be installed
 
 ```powershell
 # Clone/navigate to project
-cd D:\projects\RelayX
+cd D:\projects\Divyashree
 
 # Copy and edit .env (already done for you!)
 # Just verify it has your Twilio and DATABASE_URL credentials
@@ -46,7 +46,7 @@ notepad .env
 
 Wait for:
 ```
-✨ RelayX is now running!
+✨ Divyashree is now running!
 ```
 
 ## Step 4: Test It! (30 sec)
@@ -162,7 +162,7 @@ docker-compose down
 ## Folder Structure
 
 ```
-RelayX/
+Divyashree/
 ├── backend/           # FastAPI backend (port 8000)
 ├── voice_gateway/     # Twilio WebSocket handler (port 8001)
 ├── shared/            # Shared modules (DB, LLM, STT, TTS)
@@ -178,7 +178,7 @@ RelayX/
 
 - 📖 Read full [README.md](../README.md)
 - 🐛 Having issues? See [TROUBLESHOOTING.md](TROUBLESHOOTING.md)
-- 📮 Test with Postman: Import `docs/RelayX_API.postman_collection.json`
+- 📮 Test with Postman: Import `docs/Divyashree_API.postman_collection.json`
 - 🎯 Customize agent system prompts
 - 🚀 Build your use case!
 

@@ -86,7 +86,7 @@ async def simulate_call():
     conversation_history.append({"role": "assistant", "content": "Hello! Thanks for calling. How can I help you today?"})
     
     # Turn 2: User asks about features
-    user_message_1 = "What features does RelayX offer?"
+    user_message_1 = "What features does Divyashree offer?"
     print(f"\nðŸ‘¤ User: {user_message_1}")
     
     print("\nðŸ” [RAG Retrieval]")

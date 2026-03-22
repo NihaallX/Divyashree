@@ -1,5 +1,5 @@
 """
-Redis Cache Client for RelayX
+Redis Cache Client for Divyashree
 Handles conversation context caching and LLM response caching
 """
 import redis.asyncio as redis

@@ -284,7 +284,7 @@ deploy:
 ```powershell
 # Check Docker network
 docker network ls
-docker network inspect relayx_relayx_network
+docker network inspect <compose-project>_divyashree-network
 
 # Restart network
 docker-compose down

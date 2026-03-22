@@ -1,4 +1,4 @@
-# RelayX Architecture Diagram
+# Divyashree Architecture Diagram
 
 ## System Overview
 

@@ -9,6 +9,7 @@ from shared.sarvam_client import get_sarvam_client
 import audioop
 import io
 import wave
+import httpx
 
 
 class STTClient:
@@ -17,7 +18,49 @@ class STTClient:
     def __init__(self, model_name: str = None):
         logger.info("Initializing Sarvam STT Client...")
         self.sarvam_client = get_sarvam_client()
+        self.stt_provider = os.environ.get("STT_PROVIDER", "groq").strip().lower()
+        self.groq_api_key = os.environ.get("GROQ_API_KEY", "").strip()
+        self.groq_stt_model = os.environ.get("GROQ_STT_MODEL", "whisper-large-v3").strip()
         logger.info("✅ Sarvam STT ready")
+        logger.info(f"✅ STT provider selected: {self.stt_provider}")
+
+    async def transcribe_with_groq_whisper(self, audio_bytes: bytes, language: str = "en") -> str:
+        """
+        Primary/fallback STT using Groq Whisper.
+        Returns transcript text or empty string.
+        """
+        if not self.groq_api_key:
+            raise ValueError("GROQ_API_KEY not set")
+
+        groq_lang = language.split("-")[0] if "-" in language else language
+        send_lang = groq_lang in {"hi"}
+
+        data = {
+            "model": self.groq_stt_model,
+            "response_format": "text",
+            "temperature": "0",
+        }
+        if send_lang:
+            data["language"] = groq_lang
+
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(
+                "https://api.groq.com/openai/v1/audio/transcriptions",
+                headers={"Authorization": f"Bearer {self.groq_api_key}"},
+                files={"file": ("audio.wav", audio_bytes, "audio/wav")},
+                data=data,
+            )
+            response.raise_for_status()
+            return response.text.strip()
+
+    async def _transcribe_with_sarvam(self, enhanced_audio: bytes, language: str) -> str:
+        if language.strip().lower() in {"unknown", "auto"}:
+            sarvam_code = "unknown"
+        else:
+            sarvam_code = language if "-" in language else f"{language}-IN"
+        logger.debug(f"Transcribing with Sarvam STT (lang={sarvam_code}, enhanced=True)")
+        text = await self.sarvam_client.speech_to_text(enhanced_audio, language_code=sarvam_code)
+        return text or ""
     
     async def transcribe(
         self, 
@@ -44,16 +87,33 @@ class STTClient:
             # ===== AUDIO ENHANCEMENT FOR BETTER STT (ML Solution Phase 1) =====
             # Sarvam expects higher quality audio - upsample from 8kHz to 16kHz
             enhanced_audio = self._enhance_audio_quality(audio_data)
-            
-            # Map language code to Sarvam format
-            sarvam_code = language if "-" in language else f"{language}-IN"
-            
-            logger.debug(f"Transcribing with Sarvam STT (lang={sarvam_code}, enhanced=True)")
-            
-            text = await self.sarvam_client.speech_to_text(
-                enhanced_audio, 
-                language_code=sarvam_code
-            )
+
+            if self.stt_provider == "groq":
+                try:
+                    logger.debug("Transcribing with Groq Whisper (primary)")
+                    text = await self.transcribe_with_groq_whisper(enhanced_audio, language=language)
+                except Exception as groq_err:
+                    logger.warning(f"Groq Whisper failed, falling back to Sarvam STT: {groq_err}")
+                    text = await self._transcribe_with_sarvam(enhanced_audio, language)
+            else:
+                text = await self._transcribe_with_sarvam(enhanced_audio, language)
+
+                # Sarvam-specific fallback on quota/rate errors.
+                sarvam_err = self.get_last_error()
+                sarvam_status = sarvam_err.get("status_code")
+                sarvam_code = str(sarvam_err.get("error_code") or "").lower()
+                sarvam_msg = str(sarvam_err.get("message") or "").lower()
+                if (
+                    not text
+                    and (
+                        sarvam_status == 429
+                        or "quota" in sarvam_msg
+                        or "insufficient" in sarvam_msg
+                        or "rate_limit" in sarvam_code
+                    )
+                ):
+                    logger.warning("[STT] Sarvam quota/rate limit hit — falling back to Groq Whisper")
+                    text = await self.transcribe_with_groq_whisper(enhanced_audio, language=language)
             
             if text:
                 logger.info(f"📝 STT: '{text}'")
@@ -65,6 +125,10 @@ class STTClient:
         except Exception as e:
             logger.error(f"STT error: {e}")
             return ""
+
+    def get_last_error(self) -> dict:
+        """Return last provider-level STT error details for diagnostics/flow control."""
+        return self.sarvam_client.get_last_stt_error()
     
     def _enhance_audio_quality(self, audio_data: bytes) -> bytes:
         """

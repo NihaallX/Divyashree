@@ -1,4 +1,4 @@
--- RelayX Neon setup (idempotent)
+-- Divyashree Neon setup (idempotent)
 -- Consolidated final schema + WOW fields + Priya seed.
 
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
@@ -371,9 +371,9 @@ BEGIN
     INSERT INTO users (id, email, password_hash, name)
     VALUES (
         'a0000000-0000-0000-0000-000000000001',
-        'admin@relayx.local',
+        'admin@divyashree.local',
         '$2b$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewrBBNEFfS9ZrR6e',
-        'RelayX Admin'
+        'Divyashree Admin'
     )
     ON CONFLICT (id) DO NOTHING;
 
