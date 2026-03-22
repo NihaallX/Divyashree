@@ -48,7 +48,7 @@ async def get_voice_gateway_url():
 async def root():
     """Health check endpoint"""
     return {
-        "service": "RelayX Backend",
+        "service": "Divyashree Backend",
         "status": "running",
         "version": "1.0.0"
     }
@@ -111,7 +111,7 @@ async def get_info(db: RelayDB = Depends(get_db)):
             pass
         
         return {
-            "service": "RelayX Backend",
+            "service": "Divyashree Backend",
             "status": "running",
             "today_calls": len(today_calls),
             "ngrok_url": ngrok_url,
@@ -121,7 +121,7 @@ async def get_info(db: RelayDB = Depends(get_db)):
     except Exception as e:
         logger.warning(f"Could not get info: {e}")
         return {
-            "service": "RelayX Backend",
+            "service": "Divyashree Backend",
             "status": "running",
             "today_calls": 0,
             "ngrok_url": VOICE_GATEWAY_URL,

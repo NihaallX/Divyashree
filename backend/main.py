@@ -1,11 +1,10 @@
 
 """
-FastAPI Backend for RelayX AI Caller
+FastAPI Backend for Divyashree AI Caller
 Handles API endpoints for agents, calls, and Twilio webhooks
 """
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from twilio.rest import Client as TwilioClient
@@ -43,7 +42,7 @@ logger.add("logs/backend.log", rotation="1 day", retention="7 days", level="INFO
 
 # Initialize FastAPI
 app = FastAPI(
-    title="RelayX AI Caller API",
+    title="Divyashree AI Caller API",
     description="Backend for AI-powered outbound calling system",
     version="1.0.0"
 )
@@ -79,23 +78,23 @@ app.include_router(knowledge_routes.router)
 app.include_router(analytics_routes.router)
 app.include_router(system_routes.router)
 
-# Mount static files for dashboard
-app.mount("/static", StaticFiles(directory=os.path.join(os.path.dirname(__file__), "static")), name="static")
-
-# CORS middleware - Allow frontend domains
+# CORS middleware - API clients and local development
 allowed_origins = [
     "http://localhost:3000",
     "http://localhost:5173",
-    "https://relayx.tech",
-    "https://www.relayx.tech",
-    "https://relay-x.vercel.app",
-    "https://relayx-wine.vercel.app",
+    "https://divyashree.tech",
+    "https://www.divyashree.tech",
+    "https://api.divyashree.tech",
 ]
+
+extra_origins = os.getenv("CORS_ORIGINS", "").strip()
+if extra_origins:
+    allowed_origins.extend([origin.strip() for origin in extra_origins.split(",") if origin.strip()])
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
-    allow_origin_regex=r"https://.*\.vercel\.app",  # Allow all Vercel domains
+    allow_origin_regex=r"https://.*\.divyashree\.tech",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -144,7 +143,7 @@ else:
 @app.on_event("startup")
 async def startup_event():
     """Initialize services on startup"""
-    logger.info("Starting RelayX Backend...")
+    logger.info("Starting Divyashree Backend...")
     
     # Test database connection
     try:
@@ -190,7 +189,7 @@ async def startup_event():
 @app.on_event("shutdown")
 async def shutdown_event():
     """Cleanup on shutdown"""
-    logger.info("Shutting down RelayX Backend...")
+    logger.info("Shutting down Divyashree Backend...")
     
     try:
         from scheduler import stop_scheduler

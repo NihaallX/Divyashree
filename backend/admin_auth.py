@@ -11,7 +11,7 @@ from datetime import datetime, timedelta
 
 # Admin credentials (hashed)
 ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "admin")
-# Default password: "RelayX@2025" - double hashed with SHA256 + bcrypt-style salt
+# Default password: "Divyashree@2025" - double hashed with SHA256 + bcrypt-style salt
 ADMIN_PASSWORD_HASH = os.getenv("ADMIN_PASSWORD_HASH", "ffebe158749246f68e0b188cfd39b9ad:f42d80f42a4d269d036ddff5b5ef041c5b5987a309f959db39140c10c5f6c1c8")
 
 # Session store (in production, use Redis or database)

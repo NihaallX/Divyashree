@@ -1,11 +1,5 @@
 node_modules
+.next
 dist
-.git
-.gitignore
-*.md
+npm-debug.log
 .env
-.env.local
-.vscode
-coverage
-.DS_Store
-*.log

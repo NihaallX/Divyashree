@@ -1,7 +1,7 @@
 # Dual-Model Architecture: The Mouth & The Brain
 
 ## Overview
-RelayX uses **two different AI models** for two different purposes:
+Divyashree uses **two different AI models** for two different purposes:
 
 ### 🗣️ **The MOUTH (Groq/Llama-3.1-8b-instant)**
 - **Purpose:** Real-time IVR responses during calls
@@ -68,7 +68,7 @@ RelayX uses **two different AI models** for two different purposes:
 ### 🗣️ **Groq/Llama (MOUTH)**
 
 **Real-time conversation:**
-- Greeting ("Hi, this is Alex from RelayX")
+- Greeting ("Hi, this is Alex from Divyashree")
 - Answering questions during call
 - Handling objections
 - Following script/prompt

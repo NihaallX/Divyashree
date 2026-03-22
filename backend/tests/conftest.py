@@ -1,5 +1,5 @@
 ﻿"""
-Pytest configuration and fixtures for RelayX backend tests.
+Pytest configuration and fixtures for Divyashree backend tests.
 """
 import pytest
 import sys

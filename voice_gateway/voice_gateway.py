@@ -1,5 +1,5 @@
 ﻿"""
-Voice Gateway for RelayX AI Caller
+Voice Gateway for Divyashree AI Caller
 Handles Twilio Media Streams via WebSocket
 Real-time pipeline: Audio â†’ STT â†’ LLM â†’ TTS â†’ Audio
 
@@ -29,8 +29,9 @@ import json
 import sys
 import os
 import re
+from difflib import SequenceMatcher
 from loguru import logger
-from datetime import datetime
+from datetime import datetime, timedelta
 import audioop
 import tempfile
 import webrtcvad
@@ -38,6 +39,8 @@ import torch
 import numpy as np
 import io
 import wave
+import uuid as _uuid
+import subprocess
 
 # Add shared modules to path
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
@@ -146,7 +149,7 @@ logger.add("logs/voice_gateway.log", rotation="1 day", retention="7 days", level
 
 # Initialize FastAPI
 app = FastAPI(
-    title="RelayX Voice Gateway",
+    title="Divyashree Voice Gateway",
     description="Twilio Media Stream handler for AI voice calls",
     version="2.0.0"  # Major rewrite with barge-in support
 )
@@ -174,7 +177,12 @@ except Exception as e:
 # Add CORS middleware to allow dashboard access
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:8000", "http://127.0.0.1:8000"],
+    allow_origins=[
+        "http://localhost:8000",
+        "http://127.0.0.1:8000",
+        "http://localhost:3000",
+        "http://localhost:5173",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -1024,7 +1032,7 @@ def classify_interruption_intent(text: str) -> tuple[str, bool]:
 async def root():
     """Health check"""
     return {
-        "service": "RelayX Voice Gateway",
+        "service": "Divyashree Voice Gateway",
         "status": "running",
         "active_calls": len(active_sessions)
     }
@@ -1044,7 +1052,7 @@ async def get_info():
     # Prefer detected ngrok/tunnel URL over env var
     effective_url = ngrok_public_url or os.getenv("VOICE_GATEWAY_URL") or "not configured"
     return {
-        "service": "RelayX Voice Gateway",
+        "service": "Divyashree Voice Gateway",
         "status": "running",
         "active_calls": len(active_sessions),
         "ngrok_url": effective_url,
@@ -1988,6 +1996,356 @@ VOICE FORMATTING:
             pass
 
 
+def _normalize_browser_audio_to_wav(audio_bytes: bytes) -> tuple[Optional[bytes], Optional[str]]:
+    """
+    Normalize browser MediaRecorder audio bytes to mono 16k WAV for STT.
+
+    Accepts:
+    - webm/opus bytes (preferred browser format)
+    - wav bytes (already normalized, still re-encoded for consistency)
+    """
+    if not audio_bytes:
+        return None, "Empty audio payload"
+
+    # Fast path: if this is already a WAV file, pass through STT enhancer directly.
+    if audio_bytes.startswith(b"RIFF"):
+        return _sanitize_wav(audio_bytes), None
+
+    ffmpeg_cmd = [
+        "ffmpeg",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-i",
+        "pipe:0",
+        "-ac",
+        "1",
+        "-ar",
+        "16000",
+        "-f",
+        "wav",
+        "pipe:1",
+    ]
+
+    try:
+        proc = subprocess.run(
+            ffmpeg_cmd,
+            input=audio_bytes,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+            timeout=10,
+        )
+    except FileNotFoundError:
+        return None, "ffmpeg binary not found on server"
+    except subprocess.TimeoutExpired:
+        return None, "ffmpeg conversion timed out"
+    except Exception as exc:
+        return None, f"Audio conversion failure: {exc}"
+
+    if proc.returncode != 0 or not proc.stdout:
+        stderr = proc.stderr.decode("utf-8", errors="ignore")[:300]
+        return None, f"ffmpeg failed to decode browser audio: {stderr or 'unknown error'}"
+
+    return _sanitize_wav(proc.stdout), None
+
+
+def _sanitize_wav(wav_bytes: bytes) -> bytes:
+    """Rewrite WAV header to ensure frame counts are accurate for downstream STT logic."""
+    try:
+        with wave.open(io.BytesIO(wav_bytes), "rb") as wav_in:
+            channels = wav_in.getnchannels()
+            sampwidth = wav_in.getsampwidth()
+            framerate = wav_in.getframerate()
+            frames = wav_in.readframes(wav_in.getnframes())
+
+        out = io.BytesIO()
+        with wave.open(out, "wb") as wav_out:
+            wav_out.setnchannels(channels)
+            wav_out.setsampwidth(sampwidth)
+            wav_out.setframerate(framerate)
+            wav_out.writeframes(frames)
+        return out.getvalue()
+    except Exception:
+        return wav_bytes
+
+
+def _is_likely_silence(wav_bytes: bytes, rms_threshold: int = 220) -> bool:
+    """Cheap silence gate to avoid wasting STT calls on empty chunks."""
+    try:
+        with wave.open(io.BytesIO(wav_bytes), "rb") as wav_file:
+            frames = wav_file.readframes(wav_file.getnframes())
+            sampwidth = wav_file.getsampwidth()
+
+        if not frames:
+            return True
+
+        rms = audioop.rms(frames, sampwidth)
+        return rms < rms_threshold
+    except Exception:
+        # If parsing fails, let STT decide rather than dropping audio.
+        return False
+
+
+def _wav_duration_seconds(wav_bytes: bytes) -> Optional[float]:
+    try:
+        with wave.open(io.BytesIO(wav_bytes), "rb") as wav_file:
+            fr = wav_file.getframerate()
+            frames = wav_file.getnframes()
+            channels = wav_file.getnchannels()
+            sampwidth = wav_file.getsampwidth()
+        if fr <= 0:
+            return None
+        duration_header = frames / float(fr)
+
+        # Some streamed wavs can contain bogus nframes metadata (very large values).
+        bytes_per_second = fr * channels * sampwidth
+        duration_by_size = len(wav_bytes) / float(bytes_per_second) if bytes_per_second > 0 else duration_header
+
+        if duration_header > duration_by_size * 12:
+            return duration_by_size
+        return duration_header
+    except Exception:
+        return None
+
+
+def _trim_wav_to_seconds(wav_bytes: bytes, max_seconds: float) -> bytes:
+    """Trim WAV payload to a safe duration cap for STT calls."""
+    try:
+        with wave.open(io.BytesIO(wav_bytes), "rb") as wav_in:
+            channels = wav_in.getnchannels()
+            sampwidth = wav_in.getsampwidth()
+            framerate = wav_in.getframerate()
+            max_frames = int(max_seconds * framerate)
+            frames = wav_in.readframes(max_frames)
+
+        out = io.BytesIO()
+        with wave.open(out, "wb") as wav_out:
+            wav_out.setnchannels(channels)
+            wav_out.setsampwidth(sampwidth)
+            wav_out.setframerate(framerate)
+            wav_out.writeframes(frames)
+        return out.getvalue()
+    except Exception:
+        return wav_bytes
+
+
+@app.websocket("/ws/web/{agent_id}")
+async def web_voice_session(websocket: WebSocket, agent_id: str):
+    """
+    Browser-native voice session endpoint.
+    Accepts browser audio chunks (typically webm/opus), normalizes to WAV for STT,
+    and returns assistant audio as base64 WAV chunks in JSON messages.
+    """
+    await websocket.accept()
+
+    db = get_db()
+    llm = get_llm_client()
+    stt = get_stt_client()
+    tts = get_tts_client()
+
+    call_record = await db.create_call(
+        agent_id=agent_id,
+        to_number="web-client",
+        from_number="web-widget",
+        status="in-progress",
+        metadata={"channel": "web", "source": "voice_widget"},
+    )
+    call_id = call_record["id"]
+    started_at = datetime.now()
+
+    agent = await db.get_agent(agent_id)
+    if not agent:
+        await websocket.send_json({"type": "error", "message": "Agent not found"})
+        await websocket.close()
+        return
+
+    system_prompt = (
+        agent.get("resolved_system_prompt")
+        or agent.get("prompt_text")
+        or "You are a helpful AI assistant."
+    )
+
+    conversation_history: list[dict[str, str]] = []
+    quota_exhausted_notified = False
+    last_user_transcript = ""
+    last_user_transcript_at: Optional[datetime] = None
+    assistant_speaking_until: Optional[datetime] = None
+
+    try:
+        greeting = await llm.generate_response(
+            system_prompt=system_prompt,
+            messages=[
+                {
+                    "role": "user",
+                    "content": "[SESSION_START] Generate only the opening greeting under 30 words.",
+                }
+            ],
+            max_tokens=80,
+        )
+        if not greeting:
+            greeting = "Hi, this is Priya. How can I help you today?"
+
+        greeting_audio = await tts.generate_speech_bytes(greeting, language="en")
+        if greeting_audio:
+            greeting_duration = _wav_duration_seconds(greeting_audio) or 0.0
+            if greeting_duration > 0:
+                assistant_speaking_until = datetime.now() + timedelta(seconds=min(greeting_duration * 0.95, 10.0))
+            await websocket.send_json(
+                {
+                    "type": "audio",
+                    "audio": base64.b64encode(greeting_audio).decode("utf-8"),
+                    "text": greeting,
+                    "is_greeting": True,
+                }
+            )
+
+        await db.add_transcript(call_id=call_id, speaker="agent", text=greeting)
+        conversation_history.append({"role": "assistant", "content": greeting})
+
+        while True:
+            data = await websocket.receive()
+
+            if "bytes" in data and data["bytes"] is not None:
+                if assistant_speaking_until and datetime.now() < assistant_speaking_until:
+                    continue
+
+                raw_audio = data["bytes"]
+                stt_audio, conversion_error = _normalize_browser_audio_to_wav(raw_audio)
+                if not stt_audio:
+                    await websocket.send_json(
+                        {
+                            "type": "error",
+                            "message": conversion_error or "Unable to process microphone audio",
+                        }
+                    )
+                    continue
+
+                duration_s = _wav_duration_seconds(stt_audio)
+                if duration_s is not None and duration_s > 8.0:
+                    logger.warning(
+                        f"Web STT chunk unusually long ({duration_s:.2f}s). Trimming to 8.0s before STT."
+                    )
+                    stt_audio = _trim_wav_to_seconds(stt_audio, 8.0)
+
+                logger.debug(
+                    f"Web STT chunk bytes={len(stt_audio)} duration_s={duration_s if duration_s is not None else 'unknown'}"
+                )
+
+                if _is_likely_silence(stt_audio):
+                    continue
+
+                transcript = await stt.transcribe(stt_audio, language="unknown")
+                if not transcript or len(transcript.strip()) < 2:
+                    stt_error = stt.get_last_error() if hasattr(stt, "get_last_error") else {}
+                    stt_status = stt_error.get("status_code")
+                    stt_code = (stt_error.get("error_code") or "").lower()
+
+                    if (
+                        not quota_exhausted_notified
+                        and (
+                            stt_status == 429
+                            or stt_code in {"insufficient_quota_error", "rate_limit_exceeded_error"}
+                        )
+                    ):
+                        quota_exhausted_notified = True
+                        if stt_code == "rate_limit_exceeded_error":
+                            message = (
+                                "STT rate limit is currently exceeded on the server (Sarvam 429). "
+                                "Please wait a moment and retry."
+                            )
+                        else:
+                            message = (
+                                "STT quota is exhausted on the server (Sarvam 429 insufficient_quota_error). "
+                                "Please top up STT quota/credits and retry."
+                            )
+                        await websocket.send_json(
+                            {
+                                "type": "error",
+                                "message": message,
+                            }
+                        )
+                        break
+                    continue
+
+                # Guard against split chunk duplicates from browser recording windows.
+                now = datetime.now()
+                cleaned_current = re.sub(r"\s+", " ", transcript.strip().lower())
+                cleaned_previous = re.sub(r"\s+", " ", last_user_transcript.strip().lower())
+                if cleaned_previous and last_user_transcript_at:
+                    age_s = (now - last_user_transcript_at).total_seconds()
+                    similarity = SequenceMatcher(None, cleaned_current, cleaned_previous).ratio()
+                    if age_s <= 6 and similarity >= 0.88:
+                        logger.debug(
+                            f"Dropping duplicate user transcript chunk (age={age_s:.2f}s, similarity={similarity:.2f})"
+                        )
+                        continue
+
+                last_user_transcript = transcript
+                last_user_transcript_at = now
+
+                await websocket.send_json({"type": "transcript", "text": transcript, "role": "user"})
+                await db.add_transcript(call_id=call_id, speaker="user", text=transcript)
+                conversation_history.append({"role": "user", "content": transcript})
+
+                response_text = await llm.generate_response(
+                    system_prompt=system_prompt,
+                    messages=conversation_history,
+                    max_tokens=200,
+                )
+                if not response_text:
+                    response_text = "Could you please repeat that?"
+
+                conversation_history.append({"role": "assistant", "content": response_text})
+                await db.add_transcript(call_id=call_id, speaker="agent", text=response_text)
+
+                await websocket.send_json(
+                    {"type": "transcript", "text": response_text, "role": "assistant"}
+                )
+
+                response_audio = await tts.generate_speech_bytes(response_text, language="en")
+                if response_audio:
+                    response_duration = _wav_duration_seconds(response_audio) or 0.0
+                    if response_duration > 0:
+                        assistant_speaking_until = datetime.now() + timedelta(seconds=min(response_duration * 0.95, 10.0))
+                    await websocket.send_json(
+                        {
+                            "type": "audio",
+                            "audio": base64.b64encode(response_audio).decode("utf-8"),
+                            "text": response_text,
+                        }
+                    )
+
+            elif "text" in data and data["text"] is not None:
+                try:
+                    msg = json.loads(data["text"])
+                except Exception:
+                    continue
+
+                if msg.get("type") == "end":
+                    break
+
+    except WebSocketDisconnect:
+        logger.info(f"Web session disconnected: {call_id}")
+    except Exception as exc:
+        logger.error(f"Web session error for {call_id}: {exc}", exc_info=True)
+        try:
+            await websocket.send_json({"type": "error", "message": "Internal voice session error"})
+        except Exception:
+            pass
+    finally:
+        try:
+            duration = int((datetime.now() - started_at).total_seconds())
+            await db.update_call(call_id, status="completed", ended_at=datetime.now(), duration=duration)
+        except Exception as exc:
+            logger.warning(f"Failed to finalize web call {call_id}: {exc}")
+
+        try:
+            await websocket.close()
+        except Exception:
+            pass
+
+
 # ==================== FAST USER SPEECH PROCESSING (Vapi-style) ====================
 
 async def process_user_speech_fast(
@@ -2724,7 +3082,7 @@ async def startup_event():
     """Initialize services and start ngrok tunnel"""
     global ngrok_public_url
     
-    logger.info("Starting RelayX Voice Gateway v2.0 (Vapi-style architecture)...")
+    logger.info("Starting Divyashree Voice Gateway v2.0 (Vapi-style architecture)...")
     logger.info("Features: VAD edge-trigger, barge-in support, intent pre-classification")
     
     # Auto-detect and update tunnel URL
@@ -2738,7 +3096,7 @@ async def startup_event():
             # Auto-register with backend
             try:
                 import httpx
-                backend_url = os.getenv("BACKEND_URL", "https://relayx-production.up.railway.app")
+                backend_url = os.getenv("BACKEND_URL", "https://api.divyashree.tech")
                 async with httpx.AsyncClient(timeout=5.0) as client:
                     response = await client.post(
                         f"{backend_url}/system/register-voice-gateway",
