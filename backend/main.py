@@ -94,7 +94,8 @@ if extra_origins:
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
-    allow_origin_regex=r"https://.*\.divyashree\.tech",
+    # Allow production/custom domains and Vercel preview domains.
+    allow_origin_regex=r"https://.*\.divyashree\.tech|https://.*\.vercel\.app",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
