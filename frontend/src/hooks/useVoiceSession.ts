@@ -6,7 +6,16 @@ const WS_BASE =
   process.env.NEXT_PUBLIC_VOICE_GATEWAY_WS_URL ||
   "ws://localhost:8001";
 const AGENT_ID = process.env.NEXT_PUBLIC_WOW_AGENT_ID;
-const VOICE_THRESHOLD = 0.035;
+const BASE_VOICE_THRESHOLD = 0.02;
+const MIN_VOICE_THRESHOLD = 0.012;
+const MIC_LEVEL_GAIN = 9;
+const VAD_ATTACK_FRAMES = 2;
+const VAD_RELEASE_MS = 600;
+const VAD_NOISE_ADAPT_RATE = 0.05;
+const VAD_RMS_SMOOTHING = 0.2;
+const VAD_START_MULTIPLIER = 1.35;
+const VAD_HOLD_MULTIPLIER = 0.95;
+const MIC_UI_UPDATE_MS = 50;
 const MIN_UTTERANCE_MS = 900;
 const SILENCE_HANGOVER_MS = 850;
 const MAX_UTTERANCE_MS = 6500;
@@ -33,6 +42,7 @@ export function useVoiceSession() {
   const audioCtxRef = useRef<AudioContext | null>(null);
   const micAudioCtxRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
+  const highPassFilterRef = useRef<BiquadFilterNode | null>(null);
   const micSourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
   const micDataRef = useRef<Float32Array<ArrayBuffer> | null>(null);
   const micFrameRef = useRef<number | null>(null);
@@ -43,6 +53,13 @@ export function useVoiceSession() {
   const isAssistantSpeakingRef = useRef(false);
   const micLevelRef = useRef(0);
   const voiceDetectedRef = useRef(false);
+  const voiceFramesAboveRef = useRef(0);
+  const belowThresholdStartedAtRef = useRef(0);
+  const smoothedRmsRef = useRef(0);
+  const noiseFloorRef = useRef(0.004);
+  const dynamicThresholdRef = useRef(BASE_VOICE_THRESHOLD);
+  const chunkHadVoiceRef = useRef(false);
+  const lastUiUpdateAtRef = useRef(0);
   const lastVoiceAtRef = useRef(0);
   const chunkStartedAtRef = useRef(0);
 
@@ -51,6 +68,9 @@ export function useVoiceSession() {
   const [error, setError] = useState<string | null>(null);
   const [micLevel, setMicLevel] = useState(0);
   const [isVoiceDetected, setIsVoiceDetected] = useState(false);
+  const [voiceThreshold, setVoiceThreshold] = useState(
+    Math.min(BASE_VOICE_THRESHOLD * MIC_LEVEL_GAIN, 1)
+  );
 
   const pushMessage = (role: "user" | "assistant", text: string) => {
     setMessages((prev) => [...prev, { role, text }]);
@@ -117,6 +137,10 @@ export function useVoiceSession() {
       cancelAnimationFrame(micFrameRef.current);
       micFrameRef.current = null;
     }
+    if (highPassFilterRef.current) {
+      highPassFilterRef.current.disconnect();
+      highPassFilterRef.current = null;
+    }
     if (micSourceRef.current) {
       micSourceRef.current.disconnect();
       micSourceRef.current = null;
@@ -129,8 +153,16 @@ export function useVoiceSession() {
     }
     setMicLevel(0);
     setIsVoiceDetected(false);
+    setVoiceThreshold(Math.min(BASE_VOICE_THRESHOLD * MIC_LEVEL_GAIN, 1));
     micLevelRef.current = 0;
     voiceDetectedRef.current = false;
+    voiceFramesAboveRef.current = 0;
+    belowThresholdStartedAtRef.current = 0;
+    smoothedRmsRef.current = 0;
+    noiseFloorRef.current = 0.004;
+    dynamicThresholdRef.current = BASE_VOICE_THRESHOLD;
+    chunkHadVoiceRef.current = false;
+    lastUiUpdateAtRef.current = 0;
     lastVoiceAtRef.current = 0;
     chunkStartedAtRef.current = 0;
   }, []);
@@ -145,12 +177,18 @@ export function useVoiceSession() {
     }
 
     const source = micCtx.createMediaStreamSource(stream);
+    const highPassFilter = micCtx.createBiquadFilter();
+    highPassFilter.type = "highpass";
+    highPassFilter.frequency.value = 100;
+    highPassFilter.Q.value = 0.707;
     const analyser = micCtx.createAnalyser();
-    analyser.fftSize = 1024;
-    analyser.smoothingTimeConstant = 0.25;
+    analyser.fftSize = 512;
+    analyser.smoothingTimeConstant = 0.2;
 
-    source.connect(analyser);
+    source.connect(highPassFilter);
+    highPassFilter.connect(analyser);
     micSourceRef.current = source;
+    highPassFilterRef.current = highPassFilter;
     analyserRef.current = analyser;
 
     const data = new Float32Array(
@@ -173,15 +211,66 @@ export function useVoiceSession() {
         sumSquares += normalized * normalized;
       }
 
+      const now = Date.now();
       const rms = Math.sqrt(sumSquares / micDataRef.current.length);
-      const normalizedLevel = Math.min(rms * 4, 1);
-      setMicLevel(normalizedLevel);
-      const detected = normalizedLevel > VOICE_THRESHOLD;
-      setIsVoiceDetected(detected);
+      const smoothedRms =
+        smoothedRmsRef.current * (1 - VAD_RMS_SMOOTHING) + rms * VAD_RMS_SMOOTHING;
+      smoothedRmsRef.current = smoothedRms;
+
+      if (!voiceDetectedRef.current) {
+        noiseFloorRef.current =
+          noiseFloorRef.current * (1 - VAD_NOISE_ADAPT_RATE) +
+          smoothedRms * VAD_NOISE_ADAPT_RATE;
+      }
+
+      const dynamicThreshold = Math.max(
+        MIN_VOICE_THRESHOLD,
+        noiseFloorRef.current * 2.3 + BASE_VOICE_THRESHOLD * 0.35
+      );
+      dynamicThresholdRef.current = dynamicThreshold;
+
+      let detected = voiceDetectedRef.current;
+      if (detected) {
+        if (smoothedRms >= dynamicThreshold * VAD_HOLD_MULTIPLIER) {
+          belowThresholdStartedAtRef.current = 0;
+          lastVoiceAtRef.current = now;
+        } else {
+          if (belowThresholdStartedAtRef.current === 0) {
+            belowThresholdStartedAtRef.current = now;
+          }
+          if (now - belowThresholdStartedAtRef.current >= VAD_RELEASE_MS) {
+            detected = false;
+            voiceFramesAboveRef.current = 0;
+          }
+        }
+      } else {
+        if (smoothedRms >= dynamicThreshold * VAD_START_MULTIPLIER) {
+          voiceFramesAboveRef.current += 1;
+        } else {
+          voiceFramesAboveRef.current = Math.max(0, voiceFramesAboveRef.current - 1);
+        }
+
+        if (voiceFramesAboveRef.current >= VAD_ATTACK_FRAMES) {
+          detected = true;
+          belowThresholdStartedAtRef.current = 0;
+          lastVoiceAtRef.current = now;
+        }
+      }
+
+      const normalizedLevel = Math.min(smoothedRms * MIC_LEVEL_GAIN, 1);
+      const normalizedThreshold = Math.min(dynamicThreshold * MIC_LEVEL_GAIN, 1);
+
       micLevelRef.current = normalizedLevel;
       voiceDetectedRef.current = detected;
-      if (detected) {
-        lastVoiceAtRef.current = Date.now();
+      if (detected && mediaRecRef.current?.state === "recording") {
+        chunkHadVoiceRef.current = true;
+      }
+
+      if (now - lastUiUpdateAtRef.current >= MIC_UI_UPDATE_MS) {
+        setMicLevel(normalizedLevel);
+        setIsVoiceDetected(detected);
+        setVoiceThreshold(normalizedThreshold);
+        lastUiUpdateAtRef.current = now;
       }
 
       micFrameRef.current = requestAnimationFrame(updateMeter);
@@ -223,14 +312,18 @@ export function useVoiceSession() {
     recorder.onstop = () => {
       if (chunksRef.current.length === 0 || !wsRef.current) {
         chunksRef.current = [];
+        chunkHadVoiceRef.current = false;
         return;
       }
 
       const hasVoiceActivity =
-        voiceDetectedRef.current || micLevelRef.current > VOICE_THRESHOLD * 0.85;
+        chunkHadVoiceRef.current ||
+        voiceDetectedRef.current ||
+        smoothedRmsRef.current > dynamicThresholdRef.current * 0.9;
 
       const blob = new Blob(chunksRef.current, { type: recorder.mimeType || "audio/webm" });
       chunksRef.current = [];
+      chunkHadVoiceRef.current = false;
 
       if (!hasVoiceActivity) {
         setStatus("listening");
@@ -272,6 +365,7 @@ export function useVoiceSession() {
     recorder.start();
     shouldRecordRef.current = true;
     mediaRecRef.current = recorder;
+    chunkHadVoiceRef.current = false;
     chunkStartedAtRef.current = Date.now();
     lastVoiceAtRef.current = Date.now();
     setStatus("listening");
@@ -318,6 +412,9 @@ export function useVoiceSession() {
           echoCancellation: true,
           noiseSuppression: true,
           autoGainControl: true,
+          channelCount: { ideal: 1 },
+          sampleRate: { ideal: 48000 },
+          sampleSize: { ideal: 16 },
         },
         video: false,
       });
@@ -453,7 +550,7 @@ export function useVoiceSession() {
     error,
     micLevel,
     isVoiceDetected,
-    voiceThreshold: VOICE_THRESHOLD,
+    voiceThreshold,
     start,
     stop,
   };
