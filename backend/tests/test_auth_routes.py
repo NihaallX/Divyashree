@@ -92,7 +92,13 @@ def create_test_app(mock_db_client):
     
     # Import and configure auth_routes with mock
     import auth_routes
-    auth_routes.database = mock_db_client
+
+    class _MockRelayDB:
+        def __init__(self, client):
+            self.client = client
+
+    # Override dependency so route handlers use the in-memory mock client
+    app.dependency_overrides[auth_routes.get_db] = lambda: _MockRelayDB(mock_db_client)
     
     app.include_router(auth_routes.router)
     
