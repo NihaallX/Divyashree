@@ -24,7 +24,12 @@ class STTClient:
         logger.info("✅ Sarvam STT ready")
         logger.info(f"✅ STT provider selected: {self.stt_provider}")
 
-    async def transcribe_with_groq_whisper(self, audio_bytes: bytes, language: str = "en") -> str:
+    async def transcribe_with_groq_whisper(
+        self,
+        audio_bytes: bytes,
+        language: str = "en",
+        prompt: str = None,
+    ) -> str:
         """
         Primary/fallback STT using Groq Whisper.
         Returns transcript text or empty string.
@@ -44,6 +49,8 @@ class STTClient:
         }
         if send_lang:
             data["language"] = groq_lang
+        if prompt:
+            data["prompt"] = prompt
 
         async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.post(
@@ -93,7 +100,11 @@ class STTClient:
             if self.stt_provider == "groq":
                 try:
                     logger.debug("Transcribing with Groq Whisper (primary)")
-                    text = await self.transcribe_with_groq_whisper(enhanced_audio, language=language)
+                    text = await self.transcribe_with_groq_whisper(
+                        enhanced_audio,
+                        language=language,
+                        prompt=prompt,
+                    )
                 except Exception as groq_err:
                     logger.warning(f"Groq Whisper failed, falling back to Sarvam STT: {groq_err}")
                     text = await self._transcribe_with_sarvam(enhanced_audio, language)
@@ -115,7 +126,11 @@ class STTClient:
                     )
                 ):
                     logger.warning("[STT] Sarvam quota/rate limit hit — falling back to Groq Whisper")
-                    text = await self.transcribe_with_groq_whisper(enhanced_audio, language=language)
+                    text = await self.transcribe_with_groq_whisper(
+                        enhanced_audio,
+                        language=language,
+                        prompt=prompt,
+                    )
             
             if text:
                 logger.info(f"📝 STT: '{text}'")

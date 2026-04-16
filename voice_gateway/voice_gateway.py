@@ -2395,7 +2395,10 @@ async def web_voice_session(websocket: WebSocket, agent_id: str):
     last_user_transcript_at: Optional[datetime] = None
     assistant_speaking_until: Optional[datetime] = None
     web_default_language = os.getenv("WEB_DEFAULT_LANGUAGE", "en").strip().lower() or "en"
-    web_language_auto_switch = os.getenv("WEB_LANGUAGE_AUTO_SWITCH", "false").strip().lower() in {
+    if web_default_language not in {"en", "hi"}:
+        web_default_language = "en"
+
+    web_language_auto_switch = os.getenv("WEB_LANGUAGE_AUTO_SWITCH", "true").strip().lower() in {
         "1",
         "true",
         "yes",
@@ -2403,13 +2406,63 @@ async def web_voice_session(websocket: WebSocket, agent_id: str):
     }
     web_selected_language = web_default_language
 
+    stt_bilingual_prompt = (
+        "Transcribe spoken audio exactly as spoken. Allowed languages: English and Hindi only. "
+        "If Hindi is spoken, prefer Devanagari script. Do not output Urdu unless explicitly asked."
+    )
+
+    def apply_web_language_prompt(base_prompt: str, language: str) -> str:
+        if language == "hi":
+            return (
+                f"{base_prompt}\n\n"
+                "LANGUAGE MODE: Reply in natural conversational Hindi (Devanagari). "
+                "Do not switch to English unless the user asks. Do not use Urdu script."
+            )
+        return (
+            f"{base_prompt}\n\n"
+            "LANGUAGE MODE: Reply in natural conversational English. "
+            "If user asks for Hindi, switch to Hindi (Devanagari)."
+        )
+
+    def detect_web_turn_language(text: str, current_language: str) -> str | None:
+        text_lower = text.lower().strip()
+        if not text_lower:
+            return None
+
+        hindi_switch_patterns = [
+            "hindi",
+            "in hindi",
+            "hindi mein",
+            "hindi me",
+            "हिंदी",
+            "हिन्दी",
+        ]
+        english_switch_patterns = [
+            "english",
+            "in english",
+            "speak english",
+            "अंग्रेजी",
+            "अंग्रेज़ी",
+        ]
+
+        if any(pattern in text_lower for pattern in hindi_switch_patterns):
+            return "hi"
+        if any(pattern in text_lower for pattern in english_switch_patterns):
+            return "en"
+
+        # Conservative fallback: only auto-upgrade EN -> HI when Devanagari is present.
+        if web_language_auto_switch and current_language == "en" and re.search(r"[\u0900-\u097f]", text):
+            return "hi"
+
+        return None
+
     try:
         logger.info(
             f"🌐 Web voice session language config: default={web_selected_language}, auto_switch={web_language_auto_switch}"
         )
 
         greeting = await llm.generate_response(
-            system_prompt=system_prompt,
+            system_prompt=apply_web_language_prompt(system_prompt, web_selected_language),
             messages=[
                 {
                     "role": "user",
@@ -2470,7 +2523,25 @@ async def web_voice_session(websocket: WebSocket, agent_id: str):
                 if _is_likely_silence(stt_audio):
                     continue
 
-                transcript = await stt.transcribe(stt_audio, language=web_selected_language)
+                transcript = await stt.transcribe(
+                    stt_audio,
+                    language=web_selected_language,
+                    prompt=stt_bilingual_prompt,
+                )
+                if not transcript or len(transcript.strip()) < 2:
+                    if web_language_auto_switch:
+                        alternate_lang = "hi" if web_selected_language == "en" else "en"
+                        alternate_transcript = await stt.transcribe(
+                            stt_audio,
+                            language=alternate_lang,
+                            prompt=stt_bilingual_prompt,
+                        )
+                        if alternate_transcript and len(alternate_transcript.strip()) >= 2:
+                            logger.info(
+                                f"🌐 Web STT fallback succeeded with {alternate_lang.upper()} while current={web_selected_language.upper()}"
+                            )
+                            transcript = alternate_transcript
+
                 if not transcript or len(transcript.strip()) < 2:
                     stt_error = stt.get_last_error() if hasattr(stt, "get_last_error") else {}
                     stt_status = stt_error.get("status_code")
@@ -2519,18 +2590,17 @@ async def web_voice_session(websocket: WebSocket, agent_id: str):
                 last_user_transcript = transcript
                 last_user_transcript_at = now
 
-                if web_language_auto_switch:
-                    detected_turn_lang = detect_turn_language(transcript)
-                    if detected_turn_lang and detected_turn_lang != web_selected_language:
-                        logger.info(f"🌐 Web session language switch: {web_selected_language} -> {detected_turn_lang}")
-                        web_selected_language = detected_turn_lang
+                detected_turn_lang = detect_web_turn_language(transcript, web_selected_language)
+                if detected_turn_lang and detected_turn_lang != web_selected_language:
+                    logger.info(f"🌐 Web session language switch: {web_selected_language} -> {detected_turn_lang}")
+                    web_selected_language = detected_turn_lang
 
                 await websocket.send_json({"type": "transcript", "text": transcript, "role": "user"})
                 await db.add_transcript(call_id=call_id, speaker="user", text=transcript)
                 conversation_history.append({"role": "user", "content": transcript})
 
                 response_text = await llm.generate_response(
-                    system_prompt=system_prompt,
+                    system_prompt=apply_web_language_prompt(system_prompt, web_selected_language),
                     messages=conversation_history,
                     max_tokens=200,
                 )
