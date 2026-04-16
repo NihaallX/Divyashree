@@ -28,6 +28,7 @@ export interface Message {
 
 export function useVoiceSession() {
   const wsRef = useRef<WebSocket | null>(null);
+  const abortDuringConnectRef = useRef(false);
   const mediaRecRef = useRef<MediaRecorder | null>(null);
   const audioCtxRef = useRef<AudioContext | null>(null);
   const micAudioCtxRef = useRef<AudioContext | null>(null);
@@ -305,6 +306,7 @@ export function useVoiceSession() {
   }, [createRecorder]);
 
   const start = useCallback(async () => {
+    abortDuringConnectRef.current = false;
     setError(null);
     setMessages([]);
     setStatus("connecting");
@@ -333,10 +335,15 @@ export function useVoiceSession() {
       return;
     }
 
-    const ws = new WebSocket(`${WS_BASE}/ws/web/${AGENT_ID}`);
+    const wsBase = WS_BASE.replace(/\/+$/, "");
+    const ws = new WebSocket(`${wsBase}/ws/web/${AGENT_ID}`);
     wsRef.current = ws;
 
     ws.onopen = () => {
+      if (abortDuringConnectRef.current) {
+        ws.close();
+        return;
+      }
       setStatus("greeting");
     };
 
@@ -384,11 +391,16 @@ export function useVoiceSession() {
     };
 
     ws.onerror = () => {
+      if (abortDuringConnectRef.current) {
+        return;
+      }
       setError("Connection failed. Make sure the voice gateway is running.");
       setStatus("error");
     };
 
     ws.onclose = () => {
+      wsRef.current = null;
+      abortDuringConnectRef.current = false;
       streamRef.current?.getTracks().forEach((t) => t.stop());
       streamRef.current = null;
       shouldRecordRef.current = false;
@@ -405,6 +417,7 @@ export function useVoiceSession() {
   }, [playAudioBase64, startMicMonitoring, startRecording, stopMicMonitoring]);
 
   const stop = useCallback(() => {
+    abortDuringConnectRef.current = true;
     shouldRecordRef.current = false;
     isAssistantSpeakingRef.current = false;
     if (mediaRecRef.current?.state === "recording") {
@@ -417,8 +430,13 @@ export function useVoiceSession() {
     if (wsRef.current) {
       if (wsRef.current.readyState === WebSocket.OPEN) {
         wsRef.current.send(JSON.stringify({ type: "end" }));
+        wsRef.current.close();
+      } else if (wsRef.current.readyState === WebSocket.CONNECTING) {
+        // Avoid closing during CONNECTING to prevent browser "closed before established" noise.
+        // onopen will detect abortDuringConnectRef and close immediately.
+      } else {
+        wsRef.current.close();
       }
-      wsRef.current.close();
     }
 
     mediaRecRef.current = null;
