@@ -5,9 +5,7 @@ import { useRef, useState, useCallback } from "react";
 const WS_BASE =
   process.env.NEXT_PUBLIC_VOICE_GATEWAY_WS_URL ||
   "ws://localhost:8001";
-const AGENT_ID =
-  process.env.NEXT_PUBLIC_WOW_AGENT_ID ||
-  "c4083449-3d67-4696-9822-15770d9c0371";
+const AGENT_ID = process.env.NEXT_PUBLIC_WOW_AGENT_ID;
 const VOICE_THRESHOLD = 0.035;
 const MIN_UTTERANCE_MS = 900;
 const SILENCE_HANGOVER_MS = 850;
@@ -325,6 +323,12 @@ export function useVoiceSession() {
       await startMicMonitoring(stream);
     } catch {
       setError("Microphone access denied. Please allow microphone and try again.");
+      setStatus("error");
+      return;
+    }
+
+    if (!AGENT_ID) {
+      setError("Missing NEXT_PUBLIC_WOW_AGENT_ID. Configure it before starting a voice session.");
       setStatus("error");
       return;
     }
