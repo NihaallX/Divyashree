@@ -15,7 +15,9 @@ const VAD_NOISE_ADAPT_RATE = 0.05;
 const VAD_RMS_SMOOTHING = 0.2;
 const VAD_START_MULTIPLIER = 1.35;
 const VAD_HOLD_MULTIPLIER = 0.95;
-const MIC_UI_UPDATE_MS = 50;
+const MIC_UI_UPDATE_MS = 90;
+const MIC_LEVEL_UI_EPSILON = 0.02;
+const MIC_THRESHOLD_UI_EPSILON = 0.015;
 const MIN_UTTERANCE_MS = 900;
 const SILENCE_HANGOVER_MS = 850;
 const MAX_UTTERANCE_MS = 6500;
@@ -60,6 +62,11 @@ export function useVoiceSession() {
   const dynamicThresholdRef = useRef(BASE_VOICE_THRESHOLD);
   const chunkHadVoiceRef = useRef(false);
   const lastUiUpdateAtRef = useRef(0);
+  const lastPublishedMicLevelRef = useRef(0);
+  const lastPublishedVoiceThresholdRef = useRef(
+    Math.min(BASE_VOICE_THRESHOLD * MIC_LEVEL_GAIN, 1)
+  );
+  const lastPublishedVoiceDetectedRef = useRef(false);
   const lastVoiceAtRef = useRef(0);
   const chunkStartedAtRef = useRef(0);
 
@@ -155,6 +162,9 @@ export function useVoiceSession() {
     setIsVoiceDetected(false);
     setVoiceThreshold(Math.min(BASE_VOICE_THRESHOLD * MIC_LEVEL_GAIN, 1));
     micLevelRef.current = 0;
+    lastPublishedMicLevelRef.current = 0;
+    lastPublishedVoiceThresholdRef.current = Math.min(BASE_VOICE_THRESHOLD * MIC_LEVEL_GAIN, 1);
+    lastPublishedVoiceDetectedRef.current = false;
     voiceDetectedRef.current = false;
     voiceFramesAboveRef.current = 0;
     belowThresholdStartedAtRef.current = 0;
@@ -267,9 +277,29 @@ export function useVoiceSession() {
       }
 
       if (now - lastUiUpdateAtRef.current >= MIC_UI_UPDATE_MS) {
-        setMicLevel(normalizedLevel);
-        setIsVoiceDetected(detected);
-        setVoiceThreshold(normalizedThreshold);
+        const levelChanged =
+          Math.abs(normalizedLevel - lastPublishedMicLevelRef.current) >=
+          MIC_LEVEL_UI_EPSILON;
+        const thresholdChanged =
+          Math.abs(normalizedThreshold - lastPublishedVoiceThresholdRef.current) >=
+          MIC_THRESHOLD_UI_EPSILON;
+        const detectedChanged = detected !== lastPublishedVoiceDetectedRef.current;
+
+        if (levelChanged) {
+          setMicLevel(normalizedLevel);
+          lastPublishedMicLevelRef.current = normalizedLevel;
+        }
+
+        if (thresholdChanged) {
+          setVoiceThreshold(normalizedThreshold);
+          lastPublishedVoiceThresholdRef.current = normalizedThreshold;
+        }
+
+        if (detectedChanged) {
+          setIsVoiceDetected(detected);
+          lastPublishedVoiceDetectedRef.current = detected;
+        }
+
         lastUiUpdateAtRef.current = now;
       }
 

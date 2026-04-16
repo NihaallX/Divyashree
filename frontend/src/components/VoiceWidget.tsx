@@ -1,7 +1,7 @@
 "use client";
 
 import { useVoiceSession, SessionStatus } from "../hooks/useVoiceSession";
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 
 interface VoiceWidgetProps {
   className?: string;
@@ -33,6 +33,25 @@ export default function VoiceWidget({ className = "" }: VoiceWidgetProps) {
   const isActive = status !== "idle" && status !== "error";
   const micLevelPercent = Math.round(micLevel * 100);
   const thresholdPercent = Math.round(voiceThreshold * 100);
+  const safeMicScale = Math.max(0, Math.min(micLevel, 1));
+
+  const transcriptRows = useMemo(
+    () =>
+      messages.map((m, i) => (
+        <div key={i} className={m.role === "user" ? "flex justify-end" : "flex justify-start"}>
+          <div
+            className={`max-w-[85%] rounded-xl px-3 py-2 text-sm leading-relaxed ${
+              m.role === "user"
+                ? "rounded-br-sm border border-foreground/15 bg-foreground/10 text-foreground"
+                : "rounded-bl-sm border border-foreground/10 bg-background text-foreground/90"
+            }`}
+          >
+            {m.text}
+          </div>
+        </div>
+      )),
+    [messages]
+  );
 
   useEffect(() => {
     const container = messagesContainerRef.current;
@@ -79,8 +98,8 @@ export default function VoiceWidget({ className = "" }: VoiceWidgetProps) {
         </div>
         <div className="relative h-2 overflow-hidden rounded-full bg-foreground/10">
           <div
-            className={`h-full rounded-full transition-all duration-100 ${isVoiceDetected ? "bg-foreground" : "bg-foreground/50"}`}
-            style={{ width: `${micLevelPercent}%` }}
+            className={`h-full w-full origin-left rounded-full transition-transform duration-100 will-change-transform ${isVoiceDetected ? "bg-foreground" : "bg-foreground/50"}`}
+            style={{ transform: `scaleX(${safeMicScale})` }}
           />
           <div
             className="absolute inset-y-0 w-[2px] bg-destructive/80"
@@ -99,19 +118,7 @@ export default function VoiceWidget({ className = "" }: VoiceWidgetProps) {
           </div>
         ) : (
           <>
-          {messages.map((m, i) => (
-            <div key={i} className={m.role === "user" ? "flex justify-end" : "flex justify-start"}>
-              <div
-                className={`max-w-[85%] rounded-xl px-3 py-2 text-sm leading-relaxed ${
-                  m.role === "user"
-                    ? "rounded-br-sm border border-foreground/15 bg-foreground/10 text-foreground"
-                    : "rounded-bl-sm border border-foreground/10 bg-background text-foreground/90"
-                }`}
-              >
-                {m.text}
-              </div>
-            </div>
-          ))}
+          {transcriptRows}
           </>
         )}
       </div>
