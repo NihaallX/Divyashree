@@ -2394,9 +2394,20 @@ async def web_voice_session(websocket: WebSocket, agent_id: str):
     last_user_transcript = ""
     last_user_transcript_at: Optional[datetime] = None
     assistant_speaking_until: Optional[datetime] = None
-    web_selected_language = "en"
+    web_default_language = os.getenv("WEB_DEFAULT_LANGUAGE", "en").strip().lower() or "en"
+    web_language_auto_switch = os.getenv("WEB_LANGUAGE_AUTO_SWITCH", "false").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+    web_selected_language = web_default_language
 
     try:
+        logger.info(
+            f"🌐 Web voice session language config: default={web_selected_language}, auto_switch={web_language_auto_switch}"
+        )
+
         greeting = await llm.generate_response(
             system_prompt=system_prompt,
             messages=[
@@ -2459,7 +2470,7 @@ async def web_voice_session(websocket: WebSocket, agent_id: str):
                 if _is_likely_silence(stt_audio):
                     continue
 
-                transcript = await stt.transcribe(stt_audio, language="unknown")
+                transcript = await stt.transcribe(stt_audio, language=web_selected_language)
                 if not transcript or len(transcript.strip()) < 2:
                     stt_error = stt.get_last_error() if hasattr(stt, "get_last_error") else {}
                     stt_status = stt_error.get("status_code")
@@ -2508,10 +2519,11 @@ async def web_voice_session(websocket: WebSocket, agent_id: str):
                 last_user_transcript = transcript
                 last_user_transcript_at = now
 
-                detected_turn_lang = detect_turn_language(transcript)
-                if detected_turn_lang and detected_turn_lang != web_selected_language:
-                    logger.info(f"🌐 Web session language switch: {web_selected_language} -> {detected_turn_lang}")
-                    web_selected_language = detected_turn_lang
+                if web_language_auto_switch:
+                    detected_turn_lang = detect_turn_language(transcript)
+                    if detected_turn_lang and detected_turn_lang != web_selected_language:
+                        logger.info(f"🌐 Web session language switch: {web_selected_language} -> {detected_turn_lang}")
+                        web_selected_language = detected_turn_lang
 
                 await websocket.send_json({"type": "transcript", "text": transcript, "role": "user"})
                 await db.add_transcript(call_id=call_id, speaker="user", text=transcript)
@@ -2667,12 +2679,18 @@ async def process_user_speech_fast(
         wav_buffer.seek(0)
         audio_bytes = wav_buffer.read()
         
-        # Get current language (default to "en" for initial detection)
+        # Get current language (default to "en" after language selection).
         current_lang = getattr(session, "selected_language", "en")
+
+        if session.call_stage == CallStage.LANGUAGE_SELECT and not session.language_verified:
+            # Keep auto-detection only during explicit language selection.
+            stt_lang = "unknown"
+        else:
+            stt_lang = current_lang
         
         # Single STT call - reuse result for both language detection and main flow
         stt_start = datetime.now()
-        user_text = await stt.transcribe(audio_bytes, language=current_lang, prompt="English, Hindi, Marathi")
+        user_text = await stt.transcribe(audio_bytes, language=stt_lang, prompt="English, Hindi, Marathi")
         stt_duration = (datetime.now() - stt_start).total_seconds() * 1000
         
         logger.info(f"ðŸ“ STT ({stt_duration:.0f}ms): '{user_text}'")

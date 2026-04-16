@@ -32,8 +32,10 @@ class STTClient:
         if not self.groq_api_key:
             raise ValueError("GROQ_API_KEY not set")
 
-        groq_lang = language.split("-")[0] if "-" in language else language
-        send_lang = groq_lang in {"hi"}
+        groq_lang = (language or "").strip().lower()
+        if "-" in groq_lang:
+            groq_lang = groq_lang.split("-")[0]
+        send_lang = groq_lang not in {"", "unknown", "auto", "und"}
 
         data = {
             "model": self.groq_stt_model,
