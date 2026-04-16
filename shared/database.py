@@ -654,18 +654,10 @@ class RelayDB:
             return self.client.table("call_analysis").upsert(clean_data).execute().data[0]
         except Exception as write_error:
             error_text = str(write_error).lower()
-            wow_fields = {
-                "intent_category",
-                "budget_fit",
-                "geography_fit",
-                "timeline_fit",
-                "overall_grade",
-                "checkpoint_json",
-            }
             if "column" in error_text and "does not exist" in error_text:
-                fallback = {k: v for k, v in clean_data.items() if k not in wow_fields}
-                logger.warning("WOW columns missing in DB; saved base analysis only. Apply migration 011.")
-                return self.client.table("call_analysis").upsert(fallback).execute().data[0]
+                raise RuntimeError(
+                    "call_analysis is missing WOW columns. Apply db/migrations/011_wow_qualifications.sql before processing calls."
+                ) from write_error
             raise
 
     async def get_call_analysis(self, call_id: str) -> Optional[Dict[str, Any]]:
