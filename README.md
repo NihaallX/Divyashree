@@ -1,68 +1,120 @@
-# Divyashree
+# Divyashree Voice Platform
 
-AI-powered voice calling platform for outbound campaigns, lead qualification, appointment workflows, and call analytics.
+AI-powered voice outreach platform for outbound campaigns, lead qualification, follow-up workflows, and real-time call analytics.
 
-This repository contains Divyashree architecture: frontend app, FastAPI backend, voice gateway, and PostgreSQL data layer.
+This repository includes:
+- Next.js frontend (landing + live voice evaluator)
+- FastAPI backend (auth, agents, campaigns, contacts, analytics, knowledge base)
+- Voice gateway (Twilio/WebSocket real-time pipeline)
+- Shared AI services (LLM, STT, TTS, cache, qualification logic)
+- SQL schema/migrations and deployment tooling
 
-## Overview
+## What's New (April 2026)
 
-Divyashree helps teams automate high-volume voice communication with AI agents.
+- Improved browser voice stability by fixing WebSocket connect/close race handling.
+- Upgraded mic/VAD pipeline for better speech pickup and reduced noisy false positives.
+- Reworked evaluator UX into a full first-class section with transcript-only scrolling.
+- Reduced evaluator lag via render throttling, memoized rows, and lighter meter updates.
+- Strengthened bilingual web STT behavior (English + Hindi), with safer language switching.
+- Added web STT turn diagnostics for faster production troubleshooting.
+- Added WOW submission deliverables:
+	- System prompt PDF
+	- Requirement compliance one-pager
 
-Implemented capabilities in this codebase include:
-- AI agent configuration and prompt management
-- Bulk campaign creation from contact files (CSV/Excel parsing)
-- Outbound call triggering through Twilio
-- Call transcripts, analysis, and campaign progress tracking
-- Health, info, and operational log endpoints
-- Authentication with signup/login/refresh flow
+## Demo Media
 
-## Tech Stack
+### Live Evaluator (Landing)
 
-- Frontend: Next.js (App Router), TypeScript, Tailwind CSS
-- Backend: FastAPI, Python, Supabase client with PostgreSQL (Neon-supported DB URL)
-- Voice and AI: Twilio voice, Groq LLM, voice gateway service
-- Infra: Docker Compose, Redis, ngrok/Cloudflare tunnel scripts
+![Live evaluator section](docs/deliverables/screenshots/landing-evaluator.png)
+
+![Landing continuation sections](docs/deliverables/screenshots/landing-sections.png)
+
+### Demo Video
+
+- [relayx-demo.mp4](relayx-demo.mp4)
+
+### WOW Deliverables
+
+- [System Prompt PDF](docs/deliverables/System_Prompt_Priya_WOW.pdf)
+- [Requirement Compliance One Pager](docs/deliverables/WOW_Requirement_Compliance_One_Pager.md)
+
+## Core Capabilities
+
+- AI agent prompt configuration and runtime system-prompt resolution
+- Bulk campaign creation from CSV/Excel contact uploads
+- Outbound call initiation and call-state tracking
+- Real-time transcript capture and post-call analysis fields
+- Deterministic WOW checkpoint guidance and qualification normalization
+- Knowledge-base retrieval (RAG) for detail-rich responses
+- Barge-in-aware voice pipeline with interruption intent handling
+- Bilingual handling (English + Hindi) in web voice evaluator flow
 
 ## Architecture
 
-- Frontend (landing, auth, docs)
-- Backend API (auth, agents, calls, campaigns, contacts, analytics, templates, knowledge base)
-- Voice gateway (Twilio media/session handling)
-- PostgreSQL data store
+- Frontend (Next.js): landing page, evaluator UI, marketing sections
+- Backend (FastAPI): API domain services and orchestration
+- Voice Gateway (FastAPI/WebSocket): real-time audio processing + AI loop
+- Data layer: PostgreSQL-compatible schema and migrations
+- Infra: Docker Compose, Redis, ngrok/Cloudflare tunnel scripts
+
+## Tech Stack
+
+- Frontend: Next.js 16, React 19, TypeScript, Tailwind CSS
+- Backend: FastAPI, Python, async database access
+- Voice/AI: Twilio, Groq LLM/STT paths, TTS integration
+- Ops: Docker Compose, Redis, ngrok, Cloudflare tunnel scripts
 
 ## Quick Start
 
 ### Prerequisites
+
 - Node.js 18+
 - Python 3.11+
-- PostgreSQL-compatible database URL
+- PostgreSQL-compatible DATABASE_URL
 - Twilio credentials
-- Groq API key
+- GROQ_API_KEY
 
-### Option A: Local Docker
-1. Configure `.env` at repo/backend level as required.
+### Option A: Docker Compose
+
+1. Configure `.env` in repo root.
 2. Start services:
 
 ```bash
 docker-compose up --build -d
 ```
 
-3. Verify backend:
+3. Verify:
 
 ```bash
 curl http://localhost:8000/health
 ```
 
-### Option B: Split Frontend + Backend Dev
-1. Backend
+### Option B: Local Multi-Service Dev
+
+1. Python setup (repo root):
+
+```bash
+python -m venv .venv
+.venv\Scripts\activate
+pip install -r requirements.txt
+pip install -r backend/requirements.txt
+```
+
+2. Backend API:
 
 ```bash
 cd backend
-pip install -r requirements.txt
-uvicorn main:app --reload
+uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-2. Frontend
+3. Voice Gateway (new terminal):
+
+```bash
+cd voice_gateway
+python voice_gateway.py
+```
+
+4. Frontend (new terminal):
 
 ```bash
 cd frontend
@@ -70,11 +122,13 @@ npm install
 npm run dev
 ```
 
-3. Open:
-- Frontend: `http://localhost:3000`
-- API docs: `http://localhost:8000/docs`
+5. Open:
 
-## Core API Surfaces
+- Frontend: `http://localhost:3000`
+- Backend docs: `http://localhost:8000/docs`
+- Voice gateway health: `http://localhost:8001/health`
+
+## API Surfaces
 
 - System: `/health`, `/info`, `/api-credits`
 - Auth: `/auth/signup`, `/auth/login`, `/auth/refresh`, `/auth/verify-token`
@@ -82,22 +136,28 @@ npm run dev
 - Calls: `/calls/outbound`, `/calls`, `/calls/{id}`
 - Campaigns: `/campaigns`, `/campaigns/create`, `/campaigns/{id}/start`
 
-Use [docs/Divyashree_API.postman_collection.json](docs/Divyashree_API.postman_collection.json) for endpoint testing.
-
-## Common Use Cases
-
-- Lead generation and pre-qualification before human handoff
-- Appointment and follow-up call workflows
-- Campaign-based outbound calling with contact uploads
-- Voice-based status checks and customer outreach
+Postman collection:
+- [docs/Divyashree_API.postman_collection.json](docs/Divyashree_API.postman_collection.json)
 
 ## Service Ports
 
+- Frontend: `http://localhost:3000`
 - Backend API: `http://localhost:8000`
 - Voice Gateway: `http://localhost:8001`
+- Redis: `localhost:6379`
 - ngrok Inspector: `http://localhost:4040`
+
+## Repository Layout
+
+- `frontend/` - Next.js UI and evaluator
+- `backend/` - FastAPI API routes and services
+- `voice_gateway/` - real-time voice session gateway
+- `shared/` - common AI/database/cache clients and prompt assets
+- `db/` - schema and migrations
+- `docs/` - architecture docs and submission deliverables
+- `scripts/` - utility and automation scripts
 
 ## Notes
 
 - Branding and runtime naming are Divyashree.
-- Some legacy docs/scripts are retained for migration reference.
+- Legacy migration/support docs are intentionally kept for operational continuity.
