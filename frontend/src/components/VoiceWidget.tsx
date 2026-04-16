@@ -3,6 +3,10 @@
 import { useVoiceSession, SessionStatus } from "../hooks/useVoiceSession";
 import { useEffect, useRef } from "react";
 
+interface VoiceWidgetProps {
+  className?: string;
+}
+
 const STATUS_LABEL: Record<SessionStatus, string> = {
   idle: "Talk to Priya",
   connecting: "Connecting...",
@@ -23,19 +27,23 @@ const STATUS_COLOR: Record<SessionStatus, string> = {
   error: "text-destructive",
 };
 
-export default function VoiceWidget() {
+export default function VoiceWidget({ className = "" }: VoiceWidgetProps) {
   const { status, messages, error, micLevel, isVoiceDetected, voiceThreshold, start, stop } = useVoiceSession();
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
   const isActive = status !== "idle" && status !== "error";
   const micLevelPercent = Math.round(micLevel * 100);
   const thresholdPercent = Math.round(voiceThreshold * 100);
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+    const container = messagesContainerRef.current;
+    if (!container) {
+      return;
+    }
+    container.scrollTop = container.scrollHeight;
+  }, [messages.length]);
 
   return (
-    <div className="w-full max-w-[420px] rounded-2xl border border-foreground/10 bg-background/85 p-4 backdrop-blur-xl shadow-xl shadow-foreground/5">
+    <div className={`flex h-full w-full flex-col rounded-2xl border border-foreground/10 bg-background/85 p-4 backdrop-blur-xl shadow-xl shadow-foreground/5 md:p-5 ${className}`}>
       <div className="flex items-center gap-3">
         <div className="relative shrink-0">
           {isActive && (
@@ -84,8 +92,13 @@ export default function VoiceWidget() {
         </p>
       </div>
 
-      {messages.length > 0 && (
-        <div className="mt-3 flex max-h-[180px] flex-col gap-2 overflow-y-auto pr-1">
+      <div ref={messagesContainerRef} className="mt-3 flex min-h-[220px] max-h-[340px] flex-col gap-2 overflow-y-auto pr-1">
+        {messages.length === 0 ? (
+          <div className="flex h-full min-h-[220px] items-center justify-center rounded-xl border border-dashed border-foreground/15 bg-background/40 px-4 text-center text-sm text-muted-foreground">
+            Start a conversation to see live transcript quality, VAD behavior, and response timing.
+          </div>
+        ) : (
+          <>
           {messages.map((m, i) => (
             <div key={i} className={m.role === "user" ? "flex justify-end" : "flex justify-start"}>
               <div
@@ -99,9 +112,9 @@ export default function VoiceWidget() {
               </div>
             </div>
           ))}
-          <div ref={messagesEndRef} />
-        </div>
-      )}
+          </>
+        )}
+      </div>
 
       {status === "listening" && (
         <div className="mt-2 flex h-6 items-end justify-center gap-1">
