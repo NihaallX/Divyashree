@@ -33,13 +33,11 @@ from difflib import SequenceMatcher
 from loguru import logger
 from datetime import datetime, timedelta
 import audioop
-import tempfile
 import webrtcvad
 import torch
 import numpy as np
 import io
 import wave
-import uuid as _uuid
 import subprocess
 
 # Add shared modules to path
@@ -49,10 +47,10 @@ from shared.database import get_db, RelayDB
 from shared.llm_client import get_llm_client, LLMClient
 from shared.stt_client import get_stt_client, STTClient
 from shared.tts_client import get_tts_client, TTSClient
-from shared.cache_client import get_cache_client, CacheClient
+from shared.cache_client import get_cache_client
+from shared.prompts.wow_prompt import PRIYA_SYSTEM_PROMPT
 from shared.wow_qualification import normalize_wow_analysis
 from dotenv import load_dotenv
-import httpx
 
 # Load environment variables
 load_dotenv()
@@ -115,25 +113,197 @@ async def retrieve_relevant_knowledge(agent_id: str, user_query: str, db: RelayD
         return ""
 
 
+WOW_DEFAULT_AGENT_ID = "c4083449-3d67-4696-9822-15770d9c0371"
+WOW_PHASE_1_2 = "PHASE_1_2"
+WOW_PHASE_3 = "PHASE_3"
+WOW_PHASE_4 = "PHASE_4"
+WOW_CHECKPOINT_PENDING = "PENDING"
+
+
+def new_wow_checkpoint_state() -> dict[str, str]:
+    """Create a deterministic runtime state map for WOW checkpoints."""
+    return {
+        "INTENT": WOW_CHECKPOINT_PENDING,
+        "GEOGRAPHY": WOW_CHECKPOINT_PENDING,
+        "BUDGET": WOW_CHECKPOINT_PENDING,
+        "TIMELINE": WOW_CHECKPOINT_PENDING,
+    }
+
+
+def classify_wow_exit_case(user_text: str) -> Optional[str]:
+    """Classify explicit graceful-exit cases for deterministic runtime branching."""
+    text = (user_text or "").lower()
+    if any(p in text for p in ["busy", "not now", "call later", "stop calling", "don't call"]):
+        return "busy"
+    if any(p in text for p in ["too expensive", "too high", "not in my budget", "outside budget", "can't afford"]):
+        return "budget_low"
+    if any(p in text for p in ["wrong location", "too far", "not nandi", "not devanahalli", "different location"]):
+        return "location_mismatch"
+    return None
+
+
+def infer_wow_checkpoint_question(ai_text: str) -> Optional[str]:
+    """Best-effort classifier for which WOW checkpoint the assistant just asked."""
+    text = (ai_text or "").lower()
+    if any(p in text for p in ["weekend home", "personal use", "investment opportunity"]):
+        return "INTENT"
+    if any(p in text for p in ["nandi", "devanahalli", "north bengaluru", "bangalore north"]):
+        return "GEOGRAPHY"
+    if any(p in text for p in ["budget", "lakh", "crore", "laak"]):
+        return "BUDGET"
+    if any(p in text for p in ["timeline", "2029", "possession", "ready to move"]):
+        return "TIMELINE"
+    return None
+
+
+def update_runtime_wow_checkpoint_state(session: "CallSession", user_text: str) -> None:
+    """Update deterministic runtime checkpoint map from latest user turn."""
+    checkpoint_hits = infer_wow_checkpoint_state([], user_text)
+
+    negative_signals = (user_text or "").lower()
+    if any(p in negative_signals for p in ["not interested", "no interest"]):
+        session.wow_checkpoint_state["INTENT"] = "FAIL"
+    if any(p in negative_signals for p in ["wrong location", "too far", "not nandi", "not devanahalli"]):
+        session.wow_checkpoint_state["GEOGRAPHY"] = "FAIL"
+    if any(p in negative_signals for p in ["too expensive", "too high", "not in my budget", "can't afford"]):
+        session.wow_checkpoint_state["BUDGET"] = "FAIL"
+    if any(p in negative_signals for p in ["need now", "ready now", "too long", "can't wait", "cannot wait"]):
+        session.wow_checkpoint_state["TIMELINE"] = "FAIL"
+
+    asked_checkpoint = getattr(session, "last_checkpoint_asked", None)
+    for checkpoint, hit in checkpoint_hits.items():
+        if not hit:
+            continue
+        current_state = session.wow_checkpoint_state.get(checkpoint, WOW_CHECKPOINT_PENDING)
+        if current_state in {"PASS", "SKIP", "FAIL"}:
+            continue
+        session.wow_checkpoint_state[checkpoint] = "PASS" if checkpoint == asked_checkpoint else "SKIP"
+
+
+def build_runtime_wow_checkpoint_guidance(session: "CallSession") -> str:
+    """Render runtime checkpoint state as deterministic guidance for generation."""
+    order = getattr(session, "wow_checkpoint_order", ["INTENT", "GEOGRAPHY", "BUDGET", "TIMELINE"])
+    state = getattr(session, "wow_checkpoint_state", new_wow_checkpoint_state())
+    next_checkpoint = next((cp for cp in order if state.get(cp) == WOW_CHECKPOINT_PENDING), None)
+
+    lines = [
+        "\n\nWOW RUNTIME CHECKPOINT STATE (deterministic):",
+        f"INTENT={state.get('INTENT', WOW_CHECKPOINT_PENDING)}",
+        f"GEOGRAPHY={state.get('GEOGRAPHY', WOW_CHECKPOINT_PENDING)}",
+        f"BUDGET={state.get('BUDGET', WOW_CHECKPOINT_PENDING)}",
+        f"TIMELINE={state.get('TIMELINE', WOW_CHECKPOINT_PENDING)}",
+    ]
+
+    if next_checkpoint:
+        lines.append(f"Ask NEXT checkpoint: {next_checkpoint}")
+    else:
+        lines.append("All checkpoints are resolved. Move to pitch/CTA per flow.")
+
+    return "\n".join(lines)
+
+
+def _message_role(msg: dict) -> str:
+    return str(msg.get("role") or msg.get("speaker") or "").strip().lower()
+
+
+def _collect_user_context_text(conversation_history: list[dict], current_user_text: str) -> str:
+    """Collect only USER utterances for checkpoint inference.
+
+    Never include assistant text; that would cause false checkpoint skips.
+    """
+    user_chunks: list[str] = []
+    for msg in conversation_history:
+        if _message_role(msg) == "user":
+            content = str(msg.get("content") or msg.get("text") or "").strip()
+            if content:
+                user_chunks.append(content)
+
+    if current_user_text and current_user_text.strip():
+        user_chunks.append(current_user_text.strip())
+
+    return " ".join(user_chunks).lower()
+
+
+def infer_wow_checkpoint_state(conversation_history: list[dict], current_user_text: str) -> dict[str, bool]:
+    """Infer caller-provided checkpoint coverage from user utterances only."""
+    user_text = _collect_user_context_text(conversation_history, current_user_text)
+
+    return {
+        "INTENT": any(p in user_text for p in ["weekend home", "personal use", "investment", "investor"]),
+        "GEOGRAPHY": any(p in user_text for p in ["nandi", "devanahalli", "north bengaluru", "bangalore north"]),
+        "BUDGET": any(p in user_text for p in ["lakh", "lac", "crore", "budget", "1 cr", "1 crore", "2 crore"]),
+        "TIMELINE": any(p in user_text for p in ["2029", "ready to move", "timeline", "possession", "phase"]),
+    }
+
+
+def infer_wow_phase(conversation_history: list[dict], current_user_text: str) -> str:
+    """Best-effort WOW phase inference for phase-aware runtime constraints."""
+    checkpoint_state = infer_wow_checkpoint_state(conversation_history, current_user_text)
+    all_checkpoints_known = all(checkpoint_state.values())
+
+    assistant_text = " ".join(
+        str(msg.get("content") or msg.get("text") or "").strip()
+        for msg in conversation_history
+        if _message_role(msg) in {"assistant", "agent"}
+    ).lower()
+
+    cta_signals = [
+        "property expert",
+        "20-minute call",
+        "booking link",
+        "book a call",
+        "connect you",
+    ]
+    pitch_signals = [
+        "let me paint a picture",
+        "74 percent of the land",
+        "private valley",
+        "20,000 square-foot clubhouse",
+        "20,000 square foot clubhouse",
+    ]
+
+    if any(signal in assistant_text for signal in cta_signals):
+        return WOW_PHASE_4
+    if any(signal in assistant_text for signal in pitch_signals) or all_checkpoints_known:
+        return WOW_PHASE_3
+    return WOW_PHASE_1_2
+
+
+def _is_wow_agent_config(agent_config: Optional[dict]) -> bool:
+    if not isinstance(agent_config, dict):
+        return False
+
+    agent_id = str(agent_config.get("id") or "").strip().lower()
+    template_source = str(agent_config.get("template_source") or "").strip().lower()
+    name = str(agent_config.get("name") or "").strip().lower()
+
+    return (
+        agent_id == WOW_DEFAULT_AGENT_ID
+        or name == "priya"
+        or "wow" in template_source
+    )
+
+
+def resolve_agent_system_prompt(agent_config: Optional[dict]) -> str:
+    """Resolve source-of-truth system prompt for an agent config."""
+    if _is_wow_agent_config(agent_config):
+        return PRIYA_SYSTEM_PROMPT
+
+    if isinstance(agent_config, dict):
+        return (
+            agent_config.get("resolved_system_prompt")
+            or agent_config.get("prompt_text")
+            or agent_config.get("system_prompt")
+            or "You are a helpful assistant."
+        )
+
+    return "You are a helpful assistant."
+
+
 def infer_wow_checkpoint_guidance(conversation_history: list[dict], current_user_text: str) -> str:
-    """Infer already-volunteered WOW qualification checkpoints from recent dialogue."""
-    full_text = " ".join(msg.get("content", "") for msg in conversation_history)
-    full_text = f"{full_text} {current_user_text}".lower()
-
-    intent_known = any(p in full_text for p in ["weekend home", "personal use", "investment", "investor"])
-    budget_known = any(p in full_text for p in ["lakh", "lac", "crore", "budget", "1 cr", "1 crore", "2 crore"])
-    geography_known = any(p in full_text for p in ["nandi", "devanahalli", "north bengaluru", "bangalore north"])
-    timeline_known = any(p in full_text for p in ["2029", "ready to move", "timeline", "possession", "phase"])
-
-    known = []
-    if intent_known:
-        known.append("INTENT")
-    if geography_known:
-        known.append("GEOGRAPHY")
-    if budget_known:
-        known.append("BUDGET")
-    if timeline_known:
-        known.append("TIMELINE")
+    """Infer already-volunteered WOW checkpoints from USER utterances only."""
+    checkpoint_state = infer_wow_checkpoint_state(conversation_history, current_user_text)
+    known = [name for name, is_known in checkpoint_state.items() if is_known]
 
     if not known:
         return ""
@@ -497,6 +667,16 @@ class CallSession:
         self.language_verified = not self.LANGUAGE_SELECTION_ENABLED
         self.selected_language = "en"
         self.language_retry_count = 0  # Track failed language detection attempts (max 2)
+
+        # Deterministic call-flow runtime state
+        self.awaiting_permission = False
+        self.permission_granted = True
+        self.call_closed = False
+
+        # Deterministic WOW checkpoint state machine (PASS/SKIP/FAIL/PENDING)
+        self.wow_checkpoint_state = new_wow_checkpoint_state()
+        self.wow_checkpoint_order = ["INTENT", "GEOGRAPHY", "BUDGET", "TIMELINE"]
+        self.last_checkpoint_asked = None
         
         # Call Stage (for context-aware timeouts)
         self.call_stage = CallStage.LANGUAGE_SELECT if self.LANGUAGE_SELECTION_ENABLED else CallStage.OPEN_ENDED
@@ -1125,17 +1305,59 @@ async def generate_call_analysis(call_id: str, db):
     """Generate AI-powered call analysis summary"""
     try:
         # Get transcripts
-        transcripts = await db.get_transcripts(call_id)
-        
-        if not transcripts or len(transcripts) < 2:
-            logger.info(f"Not enough transcript data for analysis: {call_id}")
-            return
-        
+        transcripts = await db.get_transcripts(call_id) or []
+
         # Build conversation text
         conversation_text = "\n".join([
             f"{t['speaker'].upper()}: {t['text']}" 
             for t in transcripts
         ])
+
+        # Persist a structured fallback analysis even when transcript data is sparse.
+        if len(transcripts) < 2:
+            logger.info(f"Insufficient transcript data for full analysis: {call_id}; saving default structured analysis")
+            sparse_defaults = normalize_wow_analysis(
+                {
+                    "summary": "Call ended before enough conversation was captured for full analysis.",
+                    "key_points": ["Insufficient transcript for deep analysis"],
+                    "user_sentiment": "neutral",
+                    "outcome": "other",
+                    "next_action": "DO_NOT_CONTACT",
+                    "intent_category": "UNCLEAR",
+                    "budget_fit": "MAYBE",
+                    "geography_fit": "HESITANT",
+                    "timeline_fit": "HESITANT",
+                    "overall_grade": "COLD",
+                    "checkpoint_json": {
+                        "c1_intent": "FAIL",
+                        "c2_geography": "FAIL",
+                        "c3_budget": "FAIL",
+                        "c4_timeline": "FAIL",
+                    },
+                },
+                conversation_text,
+            )
+
+            await db.save_call_analysis(
+                call_id=call_id,
+                summary=sparse_defaults.get("summary", ""),
+                key_points=sparse_defaults.get("key_points", []),
+                user_sentiment=sparse_defaults.get("user_sentiment", "neutral"),
+                outcome=sparse_defaults.get("outcome", "other"),
+                next_action=sparse_defaults.get("next_action", "DO_NOT_CONTACT"),
+                intent_category=sparse_defaults.get("intent_category", "UNCLEAR"),
+                budget_fit=sparse_defaults.get("budget_fit", "MAYBE"),
+                geography_fit=sparse_defaults.get("geography_fit", "HESITANT"),
+                timeline_fit=sparse_defaults.get("timeline_fit", "HESITANT"),
+                overall_grade=sparse_defaults.get("overall_grade", "COLD"),
+                checkpoint_json=sparse_defaults.get("checkpoint_json", {
+                    "c1_intent": "FAIL",
+                    "c2_geography": "FAIL",
+                    "c3_budget": "FAIL",
+                    "c4_timeline": "FAIL",
+                }),
+            )
+            return
         
         # Use LLM to analyze the call
         llm = get_llm_client()
@@ -1581,12 +1803,11 @@ async def status_callback(call_id: str, request: Request):
             if duration:
                 update_data["duration"] = int(duration)
             
-            # Only generate analysis for completed calls with conversation
-            if status == "completed":
-                try:
-                    await generate_call_analysis(call_id, db)
-                except Exception as analysis_error:
-                    logger.error(f"Failed to generate call analysis for {call_id}: {analysis_error}")
+            # Persist structured analysis for all terminal outcomes.
+            try:
+                await generate_call_analysis(call_id, db)
+            except Exception as analysis_error:
+                logger.error(f"Failed to generate call analysis for {call_id}: {analysis_error}")
             
             # Update campaign contact if this is a campaign call
             if campaign_id:
@@ -1759,6 +1980,12 @@ async def websocket_handler(websocket: WebSocket, call_id: str):
                     # Create session with voice settings
                     session = CallSession(call_id, agent["id"], stream_sid, voice_settings)
                     session.agent_config = agent
+
+                    is_wow_call = _is_wow_agent_config(agent)
+                    session.awaiting_permission = is_wow_call
+                    session.permission_granted = not is_wow_call
+                    session.wow_checkpoint_state = new_wow_checkpoint_state()
+
                     active_sessions[stream_sid] = session
 
                     # CHECK FOR LANGUAGE SELECTION
@@ -1797,7 +2024,7 @@ VOICE FORMATTING:
 - Write "twenty four seven" not "24/7"
 - Numbers as words for pronunciation"""
                         
-                        base_prompt = agent.get("resolved_system_prompt") or agent.get("system_prompt", "You are a helpful AI assistant.")
+                        base_prompt = resolve_agent_system_prompt(agent)
                         system_prompt = f"{GREETING_PROMPT}\n\n{base_prompt}"
                         
                         greeting = await llm.generate_response(
@@ -2160,17 +2387,14 @@ async def web_voice_session(websocket: WebSocket, agent_id: str):
         await websocket.close()
         return
 
-    system_prompt = (
-        agent.get("resolved_system_prompt")
-        or agent.get("prompt_text")
-        or "You are a helpful AI assistant."
-    )
+    system_prompt = resolve_agent_system_prompt(agent)
 
     conversation_history: list[dict[str, str]] = []
     quota_exhausted_notified = False
     last_user_transcript = ""
     last_user_transcript_at: Optional[datetime] = None
     assistant_speaking_until: Optional[datetime] = None
+    web_selected_language = "en"
 
     try:
         greeting = await llm.generate_response(
@@ -2186,7 +2410,7 @@ async def web_voice_session(websocket: WebSocket, agent_id: str):
         if not greeting:
             greeting = "Hi, this is Priya. How can I help you today?"
 
-        greeting_audio = await tts.generate_speech_bytes(greeting, language="en")
+        greeting_audio = await tts.generate_speech_bytes(greeting, language=web_selected_language)
         if greeting_audio:
             greeting_duration = _wav_duration_seconds(greeting_audio) or 0.0
             if greeting_duration > 0:
@@ -2284,6 +2508,11 @@ async def web_voice_session(websocket: WebSocket, agent_id: str):
                 last_user_transcript = transcript
                 last_user_transcript_at = now
 
+                detected_turn_lang = detect_turn_language(transcript)
+                if detected_turn_lang and detected_turn_lang != web_selected_language:
+                    logger.info(f"🌐 Web session language switch: {web_selected_language} -> {detected_turn_lang}")
+                    web_selected_language = detected_turn_lang
+
                 await websocket.send_json({"type": "transcript", "text": transcript, "role": "user"})
                 await db.add_transcript(call_id=call_id, speaker="user", text=transcript)
                 conversation_history.append({"role": "user", "content": transcript})
@@ -2303,7 +2532,7 @@ async def web_voice_session(websocket: WebSocket, agent_id: str):
                     {"type": "transcript", "text": response_text, "role": "assistant"}
                 )
 
-                response_audio = await tts.generate_speech_bytes(response_text, language="en")
+                response_audio = await tts.generate_speech_bytes(response_text, language=web_selected_language)
                 if response_audio:
                     response_duration = _wav_duration_seconds(response_audio) or 0.0
                     if response_duration > 0:
@@ -2337,6 +2566,7 @@ async def web_voice_session(websocket: WebSocket, agent_id: str):
         try:
             duration = int((datetime.now() - started_at).total_seconds())
             await db.update_call(call_id, status="completed", ended_at=datetime.now(), duration=duration)
+            await generate_call_analysis(call_id, db)
         except Exception as exc:
             logger.warning(f"Failed to finalize web call {call_id}: {exc}")
 
@@ -2549,7 +2779,7 @@ LANGUAGE STYLE - MODERN CONVERSATIONAL MARATHI:
                 }
                 
                 # SAFE: Use resolved_system_prompt without mutating original agent_config
-                current_prompt = session.agent_config.get("resolved_system_prompt") or session.agent_config.get("prompt_text") or ""
+                current_prompt = getattr(session, "resolved_system_prompt", None) or resolve_agent_system_prompt(session.agent_config)
                 session.resolved_system_prompt = f"{current_prompt}\n\nIMPORTANT: {lang_instruction[detected_lang]}"
                 
                 # Generate the REAL greeting using agent's full context and knowledge base
@@ -2591,7 +2821,7 @@ Speak in the user's selected language consistently throughout."""
                     session.selected_language = detected_lang
                     session.language_verified = True
                     
-                    current_prompt = session.agent_config.get("resolved_system_prompt") or session.agent_config.get("prompt_text") or ""
+                    current_prompt = getattr(session, "resolved_system_prompt", None) or resolve_agent_system_prompt(session.agent_config)
                     session.resolved_system_prompt = f"{current_prompt}\n\nIMPORTANT: The user speaks ENGLISH."
                     
                     # Generate greeting in English
@@ -2638,7 +2868,7 @@ CRITICAL RULES:
                 "mr": "The user now prefers MARATHI. Reply in Marathi using Devanagari naturally.",
                 "en": "The user now prefers ENGLISH. Reply only in English."
             }
-            current_prompt = session.agent_config.get("resolved_system_prompt") or session.agent_config.get("prompt_text") or ""
+            current_prompt = getattr(session, "resolved_system_prompt", None) or resolve_agent_system_prompt(session.agent_config)
             session.resolved_system_prompt = f"{current_prompt}\n\nIMPORTANT: {lang_instruction[detected_turn_lang]}"
 
         # ==================== INTENT CLASSIFICATION ====================
@@ -2669,6 +2899,7 @@ CRITICAL RULES:
         
         intent, scripted_response = classify_intent(user_text, time_since_ai_ms)
         logger.info(f"ðŸ§  Intent: {intent} (time since AI: {time_since_ai_ms:.0f}ms)")
+        is_wow_call = _is_wow_agent_config(session.agent_config)
         
         # ==================== NOISE/ECHO DETECTION - Skip entirely ====================
         if intent in ("noise", "echo"):
@@ -2701,6 +2932,68 @@ CRITICAL RULES:
         
         # Save user transcript
         await db.add_transcript(call_id=session.call_id, speaker="user", text=user_text)
+
+        # Enforce explicit permission gate at runtime before any sales progression.
+        if is_wow_call and getattr(session, "awaiting_permission", False):
+            if intent == "affirm":
+                session.permission_granted = True
+                session.awaiting_permission = False
+                logger.info("✅ Permission gate passed: user explicitly allowed conversation")
+            elif intent in {"negative", "goodbye"}:
+                close_text = "I completely understand. I apologize for the interruption. Have a great day."
+                session.awaiting_permission = False
+                session.permission_granted = False
+                session.call_closed = True
+                session.state = ConversationState.AI_SPEAKING
+                session.interrupted = False
+                await send_ai_response_with_bargein(websocket, session, close_text, tts, db, session.call_id)
+                await db.add_transcript(call_id=session.call_id, speaker="agent", text=close_text)
+                session.mark_ai_turn_complete()
+                try:
+                    await db.update_call(session.call_id, status="completed", ended_at=datetime.now())
+                except Exception as close_error:
+                    logger.warning(f"Permission-gate close update failed for {session.call_id}: {close_error}")
+                session.reset_for_listening()
+                return
+            else:
+                clarify_text = "Before we continue, do you want to speak now? Please answer yes or no."
+                session.state = ConversationState.AI_SPEAKING
+                session.interrupted = False
+                await send_ai_response_with_bargein(websocket, session, clarify_text, tts, db, session.call_id)
+                await db.add_transcript(call_id=session.call_id, speaker="agent", text=clarify_text)
+                session.mark_ai_turn_complete()
+                session.reset_for_listening()
+                return
+
+        if is_wow_call and getattr(session, "call_closed", False):
+            session.reset_for_listening()
+            return
+
+        # Deterministic graceful-exit branches for key WOW scenarios.
+        if is_wow_call:
+            exit_case = classify_wow_exit_case(user_text)
+            if exit_case:
+                exit_messages = {
+                    "busy": "I completely understand. I apologize for interrupting your schedule. Have a great day.",
+                    "budget_low": "Understood. That budget concern makes sense. Thank you for your time, and have a great day.",
+                    "location_mismatch": "I appreciate your honesty about location preferences. Thank you for your time, and have a wonderful day.",
+                }
+                close_text = exit_messages[exit_case]
+                session.call_closed = True
+                session.state = ConversationState.AI_SPEAKING
+                session.interrupted = False
+                await send_ai_response_with_bargein(websocket, session, close_text, tts, db, session.call_id)
+                await db.add_transcript(call_id=session.call_id, speaker="agent", text=close_text)
+                session.mark_ai_turn_complete()
+                try:
+                    await db.update_call(session.call_id, status="completed", ended_at=datetime.now())
+                except Exception as close_error:
+                    logger.warning(f"Graceful-exit close update failed for {session.call_id}: {close_error}")
+                session.reset_for_listening()
+                return
+
+            # Keep deterministic checkpoint state synchronized per turn.
+            update_runtime_wow_checkpoint_state(session, user_text)
         
         # Handle scripted responses (no LLM needed)
         if scripted_response:
@@ -2749,8 +3042,11 @@ ACTION: Acknowledge respectfully and offer to call back at a better time. Don't 
             else:
                 intent_hint = ""
             
+            inferred_phase = infer_wow_phase(conversation_history, user_text) if is_wow_call else WOW_PHASE_1_2
+            turn_word_limit = 80 if is_wow_call and inferred_phase in {WOW_PHASE_3, WOW_PHASE_4} else 30
+
             # PROFESSIONAL SALES AGENT PROMPT - Applied to ALL calls
-            SALES_AGENT_RULES = """CRITICAL RULES FOR PHONE CONVERSATION:
+            SALES_AGENT_RULES = f"""CRITICAL RULES FOR PHONE CONVERSATION:
 
 1. NEVER REPEAT - If you already asked something, MOVE FORWARD. Check the conversation history!
 2. ONE QUESTION per response - Never combine multiple questions
@@ -2764,7 +3060,11 @@ ACTION: Acknowledge respectfully and offer to call back at a better time. Don't 
 5. FOLLOW CONTEXT:
    - If user answered a question, move to the NEXT step
    - Don't re-ask what they already answered
-6. MAX 15 WORDS per response - Keep it short!
+6. TURN WORD LIMIT (phase-aware):
+    - Inferred phase: {inferred_phase}
+    - If PHASE_3 (pitch) or PHASE_4 (CTA), you may use up to 80 words.
+    - All other turns must stay under 30 words.
+    - Current turn limit: {turn_word_limit} words.
 7. NATURAL SPEECH - Use "I'm", "you're", "that's", "cool", "got it"
 8. ADVANCE THE CONVERSATION - Each response moves toward the goal
 9. SCHEDULING FLOW:
@@ -2783,11 +3083,12 @@ ACTION: Acknowledge respectfully and offer to call back at a better time. Don't 
             # Use session's resolved_system_prompt if set (for language selection), otherwise fallback to agent_config
             base_prompt = (
                 getattr(session, "resolved_system_prompt", None)
-                or session.agent_config.get("prompt_text")
-                or session.agent_config.get("system_prompt", "You are a helpful assistant.")
+                or resolve_agent_system_prompt(session.agent_config)
             )
 
             wow_checkpoint_guidance = infer_wow_checkpoint_guidance(conversation_history, user_text)
+            if is_wow_call:
+                wow_checkpoint_guidance = f"{wow_checkpoint_guidance}{build_runtime_wow_checkpoint_guidance(session)}"
             
             # Add last AI response context to prevent repetition
             repetition_guard = ""
@@ -2828,6 +3129,11 @@ ACTION: Acknowledge respectfully and offer to call back at a better time. Don't 
         # If interrupted, pending_ai_text will be cleared by interrupt_ai()
         session.pending_ai_text = ai_response
         session.last_ai_response = ai_response
+
+        if is_wow_call:
+            asked_checkpoint = infer_wow_checkpoint_question(ai_response)
+            if asked_checkpoint:
+                session.last_checkpoint_asked = asked_checkpoint
         
         # ==================== UPDATE CALL STAGE (VAPI-LIKE) ====================
         # Detect question type from AI response to set context-aware timeout for next user turn

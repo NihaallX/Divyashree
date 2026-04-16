@@ -4,6 +4,7 @@ import os
 from loguru import logger
 from shared.database import get_db, RelayDB
 from shared.llm_client import get_llm_client, LLMClient
+from auth import get_current_user_id
 
 router = APIRouter()
 
@@ -186,10 +187,8 @@ async def get_logs():
         return {"logs": f"Error fetching logs: {str(e)}", "timestamp": datetime.now().isoformat()}
 
 
-from admin_routes import verify_admin_token
-
 @router.get("/api/logs/backend")
-async def get_backend_logs(admin: dict = Depends(verify_admin_token)):
+async def get_backend_logs(user_id: str = Depends(get_current_user_id)):
     """Get recent backend logs"""
     try:
         # Try multiple possible log locations
@@ -213,7 +212,7 @@ async def get_backend_logs(admin: dict = Depends(verify_admin_token)):
 
 
 @router.get("/api/logs/voice-gateway")
-async def get_voice_gateway_logs(admin: dict = Depends(verify_admin_token)):
+async def get_voice_gateway_logs(user_id: str = Depends(get_current_user_id)):
     """Get recent voice gateway logs"""
     try:
         # Try multiple possible log locations

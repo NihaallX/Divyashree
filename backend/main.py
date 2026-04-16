@@ -22,7 +22,6 @@ from shared.llm_client import get_llm_client
 
 # Import routes
 import auth_routes
-import admin_routes
 import cal_routes
 import campaign_routes
 import contact_routes
@@ -54,9 +53,6 @@ app.router.dependencies.append(Depends(check_rate_limit))
 
 # Include authentication routes
 app.include_router(auth_routes.router)
-
-# Include admin routes
-app.include_router(admin_routes.router)
 
 # Include Cal.com routes
 app.include_router(cal_routes.router)

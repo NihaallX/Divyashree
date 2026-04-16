@@ -123,49 +123,11 @@ export type UserProfile = {
   updated_at?: string
 }
 
-export type AdminLoginResponse = {
-  token: string
-  username: string
-}
-
-export type AdminClientCard = {
-  id: string
-  name: string
-  email: string
-  company?: string
-  phone?: string
-  agent_count: number
-  total_calls: number
-  active_calls: number
-  last_call?: string
-  created_at?: string
-}
-
-export type AdminAnalytics = {
-  total_clients: number
-  active_clients: number
-  total_agents: number
-  total_calls: number
-  calls_today: number
-  success_rate: number
-  avg_call_duration: number
-  peak_hours: number[]
-  top_clients: Array<Record<string, unknown>>
-}
-
 function buildAuthHeaders(token?: string): HeadersInit {
   if (!token) return { "Content-Type": "application/json" }
   return {
     "Content-Type": "application/json",
     Authorization: `Bearer ${token}`,
-  }
-}
-
-function buildAdminHeaders(adminToken?: string): HeadersInit {
-  if (!adminToken) return { "Content-Type": "application/json" }
-  return {
-    "Content-Type": "application/json",
-    Authorization: `Bearer ${adminToken}`,
   }
 }
 
@@ -355,80 +317,4 @@ export async function getCurrentUser(token: string): Promise<UserProfile> {
     headers: buildAuthHeaders(token),
   })
   return parseResponse<UserProfile>(res)
-}
-
-export async function adminLogin(payload: {
-  username: string
-  password: string
-}): Promise<AdminLoginResponse> {
-  const res = await fetch(`${API_BASE_URL}/admin/login`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  })
-  return parseResponse<AdminLoginResponse>(res)
-}
-
-export async function adminVerify(adminToken: string): Promise<{ success: boolean; username: string }> {
-  const res = await fetch(`${API_BASE_URL}/admin/verify`, {
-    headers: buildAdminHeaders(adminToken),
-  })
-  return parseResponse<{ success: boolean; username: string }>(res)
-}
-
-export async function adminGetClients(adminToken: string): Promise<AdminClientCard[]> {
-  const res = await fetch(`${API_BASE_URL}/admin/clients`, {
-    headers: buildAdminHeaders(adminToken),
-  })
-  return parseResponse<AdminClientCard[]>(res)
-}
-
-export async function adminGetClientDetail(adminToken: string, clientId: string): Promise<Record<string, unknown>> {
-  const res = await fetch(`${API_BASE_URL}/admin/clients/${clientId}`, {
-    headers: buildAdminHeaders(adminToken),
-  })
-  return parseResponse<Record<string, unknown>>(res)
-}
-
-export async function adminGetAnalytics(adminToken: string, days = 7): Promise<AdminAnalytics> {
-  const query = new URLSearchParams({ days: String(days) })
-  const res = await fetch(`${API_BASE_URL}/admin/analytics?${query.toString()}`, {
-    headers: buildAdminHeaders(adminToken),
-  })
-  return parseResponse<AdminAnalytics>(res)
-}
-
-export async function adminGetCalls(adminToken: string, limit = 100): Promise<Array<Record<string, unknown>>> {
-  const query = new URLSearchParams({ limit: String(limit) })
-  const res = await fetch(`${API_BASE_URL}/admin/calls?${query.toString()}`, {
-    headers: buildAdminHeaders(adminToken),
-  })
-  return parseResponse<Array<Record<string, unknown>>>(res)
-}
-
-export async function adminGetAgents(adminToken: string): Promise<Array<Record<string, unknown>>> {
-  const res = await fetch(`${API_BASE_URL}/admin/agents`, {
-    headers: buildAdminHeaders(adminToken),
-  })
-  return parseResponse<Array<Record<string, unknown>>>(res)
-}
-
-export async function adminGetAuditLogs(adminToken: string, limit = 100): Promise<{ logs: Array<Record<string, unknown>> }> {
-  const query = new URLSearchParams({ limit: String(limit) })
-  const res = await fetch(`${API_BASE_URL}/admin/audit-logs?${query.toString()}`, {
-    headers: buildAdminHeaders(adminToken),
-  })
-  return parseResponse<{ logs: Array<Record<string, unknown>> }>(res)
-}
-
-export async function adminGetSystemLogs(
-  adminToken: string,
-  service: "backend" | "voice-gateway",
-  lines = 200
-): Promise<{ service: string; lines: string[] }> {
-  const query = new URLSearchParams({ lines: String(lines) })
-  const res = await fetch(`${API_BASE_URL}/admin/system-logs/${service}?${query.toString()}`, {
-    headers: buildAdminHeaders(adminToken),
-  })
-  return parseResponse<{ service: string; lines: string[] }>(res)
 }
