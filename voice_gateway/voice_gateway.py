@@ -2394,9 +2394,6 @@ async def web_voice_session(websocket: WebSocket, agent_id: str):
     last_user_transcript = ""
     last_user_transcript_at: Optional[datetime] = None
     assistant_speaking_until: Optional[datetime] = None
-    web_is_wow_call = _is_wow_agent_config(agent)
-    web_awaiting_permission = web_is_wow_call
-    web_call_closed = False
     web_default_language = os.getenv("WEB_DEFAULT_LANGUAGE", "en").strip().lower() or "en"
     if web_default_language not in {"en", "hi"}:
         web_default_language = "en"
@@ -2426,14 +2423,6 @@ async def web_voice_session(websocket: WebSocket, agent_id: str):
             "LANGUAGE MODE: Reply in natural conversational English. "
             "If user asks for Hindi, switch to Hindi (Devanagari)."
         )
-
-    def build_web_system_prompt(language: str, latest_user_text: str = "") -> str:
-        prompt_with_language = apply_web_language_prompt(system_prompt, language)
-        if web_is_wow_call:
-            checkpoint_guidance = infer_wow_checkpoint_guidance(conversation_history, latest_user_text)
-            if checkpoint_guidance:
-                prompt_with_language = f"{prompt_with_language}{checkpoint_guidance}"
-        return prompt_with_language
 
     def detect_web_turn_language(text: str, current_language: str) -> tuple[str | None, str]:
         text_lower = text.lower().strip()
@@ -2473,7 +2462,7 @@ async def web_voice_session(websocket: WebSocket, agent_id: str):
         )
 
         greeting = await llm.generate_response(
-            system_prompt=build_web_system_prompt(web_selected_language),
+            system_prompt=apply_web_language_prompt(system_prompt, web_selected_language),
             messages=[
                 {
                     "role": "user",
@@ -2624,62 +2613,12 @@ async def web_voice_session(websocket: WebSocket, agent_id: str):
                     )
                     web_selected_language = detected_turn_lang
 
-                if web_is_wow_call and web_awaiting_permission:
-                    permission_intent, _ = classify_intent(transcript, 9999.0)
-                    if permission_intent == "affirm":
-                        web_awaiting_permission = False
-                        logger.info("✅ Web permission gate passed: user explicitly allowed conversation")
-                    elif permission_intent in {"negative", "goodbye"}:
-                        web_awaiting_permission = False
-                        web_call_closed = True
-                        close_text = "I completely understand. I apologize for the interruption. Have a great day."
-
-                        await websocket.send_json({"type": "transcript", "text": transcript, "role": "user"})
-                        await db.add_transcript(call_id=call_id, speaker="user", text=transcript)
-                        conversation_history.append({"role": "user", "content": transcript})
-
-                        await websocket.send_json(
-                            {"type": "transcript", "text": close_text, "role": "assistant"}
-                        )
-                        await db.add_transcript(call_id=call_id, speaker="agent", text=close_text)
-                        conversation_history.append({"role": "assistant", "content": close_text})
-
-                        close_audio = await tts.generate_speech_bytes(close_text, language=web_selected_language)
-                        if close_audio:
-                            await websocket.send_json(
-                                {
-                                    "type": "audio",
-                                    "audio": base64.b64encode(close_audio).decode("utf-8"),
-                                    "text": close_text,
-                                }
-                            )
-                        break
-                    else:
-                        clarify_text = "Before we continue, do you want to speak now? Please answer yes or no."
-                        await websocket.send_json({"type": "transcript", "text": clarify_text, "role": "assistant"})
-                        await db.add_transcript(call_id=call_id, speaker="agent", text=clarify_text)
-                        conversation_history.append({"role": "assistant", "content": clarify_text})
-
-                        clarify_audio = await tts.generate_speech_bytes(clarify_text, language=web_selected_language)
-                        if clarify_audio:
-                            await websocket.send_json(
-                                {
-                                    "type": "audio",
-                                    "audio": base64.b64encode(clarify_audio).decode("utf-8"),
-                                    "text": clarify_text,
-                                }
-                            )
-                        continue
-
-                if web_is_wow_call and web_call_closed:
-                    break
-
                 await websocket.send_json({"type": "transcript", "text": transcript, "role": "user"})
                 await db.add_transcript(call_id=call_id, speaker="user", text=transcript)
                 conversation_history.append({"role": "user", "content": transcript})
 
                 response_text = await llm.generate_response(
-                    system_prompt=build_web_system_prompt(web_selected_language, transcript),
+                    system_prompt=apply_web_language_prompt(system_prompt, web_selected_language),
                     messages=conversation_history,
                     max_tokens=200,
                 )
