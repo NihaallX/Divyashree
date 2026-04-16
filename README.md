@@ -29,10 +29,6 @@ This repository includes:
 
 ![Landing continuation sections](docs/deliverables/screenshots/landing-sections.png)
 
-### Demo Video
-
-- [relayx-demo.mp4](relayx-demo.mp4)
-
 ### WOW Deliverables
 
 - [System Prompt PDF](docs/deliverables/System_Prompt_Priya_WOW.pdf)
@@ -63,70 +59,6 @@ This repository includes:
 - Backend: FastAPI, Python, async database access
 - Voice/AI: Twilio, Groq LLM/STT paths, TTS integration
 - Ops: Docker Compose, Redis, ngrok, Cloudflare tunnel scripts
-
-## Quick Start
-
-### Prerequisites
-
-- Node.js 18+
-- Python 3.11+
-- PostgreSQL-compatible DATABASE_URL
-- Twilio credentials
-- GROQ_API_KEY
-
-### Option A: Docker Compose
-
-1. Configure `.env` in repo root.
-2. Start services:
-
-```bash
-docker-compose up --build -d
-```
-
-3. Verify:
-
-```bash
-curl http://localhost:8000/health
-```
-
-### Option B: Local Multi-Service Dev
-
-1. Python setup (repo root):
-
-```bash
-python -m venv .venv
-.venv\Scripts\activate
-pip install -r requirements.txt
-pip install -r backend/requirements.txt
-```
-
-2. Backend API:
-
-```bash
-cd backend
-uvicorn main:app --host 0.0.0.0 --port 8000 --reload
-```
-
-3. Voice Gateway (new terminal):
-
-```bash
-cd voice_gateway
-python voice_gateway.py
-```
-
-4. Frontend (new terminal):
-
-```bash
-cd frontend
-npm install
-npm run dev
-```
-
-5. Open:
-
-- Frontend: `http://localhost:3000`
-- Backend docs: `http://localhost:8000/docs`
-- Voice gateway health: `http://localhost:8001/health`
 
 ## API Surfaces
 
