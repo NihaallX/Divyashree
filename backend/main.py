@@ -17,6 +17,9 @@ from dotenv import load_dotenv
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.append(os.path.dirname(__file__))
 
+# Load environment variables before importing modules that read env at import-time.
+load_dotenv()
+
 from shared.database import get_db
 from shared.llm_client import get_llm_client
 
@@ -32,9 +35,6 @@ import template_routes
 import knowledge_routes
 import analytics_routes
 import system_routes
-
-# Load environment variables
-load_dotenv()
 
 # Configure logger
 logger.add("logs/backend.log", rotation="1 day", retention="7 days", level="INFO")
